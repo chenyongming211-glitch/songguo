@@ -31,6 +31,7 @@ async function run() {
     createLearningSubmission,
     getLearningSubmission,
     recognizeSubmissionPhoto,
+    recognizeSubmissionVoice,
     startNextSubmissionTutorItem,
     submitSubmissionTutorAttempt,
   } = require("../lib/api");
@@ -47,6 +48,7 @@ async function run() {
   await startNextSubmissionTutorItem("sub_001");
   await submitSubmissionTutorAttempt("sub_001", "8");
   const photoDraft = await recognizeSubmissionPhoto("/tmp/homework.txt", "child_001", "math");
+  const voiceDraft = await recognizeSubmissionVoice("/tmp/homework.mp3", "child_001", "math");
 
   assert.equal(requests[0].url.endsWith("/api/v1/learning/submissions"), true);
   assert.equal(requests[0].method, "POST");
@@ -85,6 +87,14 @@ async function run() {
   });
   assert.equal(photoDraft.question_text, "一根彩带2米35厘米，剪去80厘米，还剩多少厘米？");
   assert.equal(photoDraft.child_answer, "155厘米");
+  assert.equal(requests[6].url.endsWith("/api/v1/learning/submissions/voice-draft"), true);
+  assert.equal(requests[6].filePath, "/tmp/homework.mp3");
+  assert.deepEqual(requests[6].formData, {
+    child_id: "child_001",
+    subject: "math",
+    grade: 3,
+  });
+  assert.equal(voiceDraft.question_text, "一根彩带2米35厘米，剪去80厘米，还剩多少厘米？");
 }
 
 run()

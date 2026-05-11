@@ -238,6 +238,10 @@ def test_llm_session_prompt_allows_model_driven_wellbeing_pause() -> None:
 
     assert "身体、情绪、注意力或意愿状态不适合继续学习" in rules_text
     assert "不要继续追问题" in rules_text
+    priority_text = "\n".join(payload["current_turn"]["teacher_move_priority"])
+    assert "child_answer_status=answer_seeking" in priority_text
+    assert "teacher_move=redirect_to_learning" in priority_text
+    assert "child_answer_status=resume_request" in priority_text
     assert "LEARNING_PAUSED" in payload["output_schema"]["structured_state"]["phase"]
     assert "wellbeing_not_ready" in payload["output_schema"]["teaching_intent"]["child_answer_status"]
     assert "pause_learning" in payload["output_schema"]["teaching_intent"]["teacher_move"]

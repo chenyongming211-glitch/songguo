@@ -244,6 +244,18 @@ function recognizeSubmissionPhoto(filePath, childId, subject) {
   });
 }
 
+function recognizeSubmissionVoice(filePath, childId, subject) {
+  return upload({
+    path: "/api/v1/learning/submissions/voice-draft",
+    filePath,
+    formData: {
+      child_id: childId || getSessionChildId(),
+      subject: subject || "math",
+      grade: 3,
+    },
+  });
+}
+
 function confirmPhotoReview(reviewId, payload) {
   return request({
     path: `/api/v1/learning/photo-review/${encodeURIComponent(reviewId)}/confirm`,
@@ -441,6 +453,7 @@ module.exports = {
   requestLearningAnimation,
   loginWithWechat,
   recognizeSubmissionPhoto,
+  recognizeSubmissionVoice,
   getParentLearningDeposit,
   getParentLearningMemory,
   getParentReviewPlan,

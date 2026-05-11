@@ -257,7 +257,7 @@ def build_wrong_question_list(
         items=[
             WrongQuestionSummary(
                 question_id=item.question_id,
-                session_id=item.session_id,
+                session_id=_parent_visible_session_id(store, child_id=child_id, wrong_question=item),
                 normalized_question=item.normalized_question,
                 knowledge_point=item.knowledge_point,
                 knowledge_point_label=knowledge_point_label(item.knowledge_point),
@@ -270,6 +270,25 @@ def build_wrong_question_list(
             for item in store.list_wrong_questions(child_id)
         ],
     )
+
+
+def _parent_visible_session_id(
+    store: InMemoryLearningStore,
+    *,
+    child_id: str,
+    wrong_question,
+) -> str:
+    submission = store.get_submission(wrong_question.session_id)
+    if submission is None or submission.child_id != child_id:
+        return wrong_question.session_id
+
+    for queue_item in store.list_tutor_queue_items(submission.submission_id):
+        if not queue_item.tutor_session_id:
+            continue
+        for item in store.list_submission_items(submission.submission_id):
+            if item.item_id == queue_item.item_id and item.question_text == wrong_question.normalized_question:
+                return queue_item.tutor_session_id
+    return wrong_question.session_id
 
 
 def build_learning_deposit(

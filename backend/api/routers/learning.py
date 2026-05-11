@@ -36,10 +36,16 @@ from songguo.backend.services.learning.service import (
     SubmitAttemptResult,
     get_global_learning_service,
 )
+from songguo.backend.services.learning.voice_input import (
+    DeterministicASRProvider,
+    OpenAICompatibleASRProvider,
+    VoiceInputService,
+)
 from songguo.backend.services.session_auth import authorize_child_access, strict_auth_enabled
 
 router = APIRouter()
 _PHOTO_REVIEW_SERVICE: PhotoReviewService | None = None
+_VOICE_INPUT_SERVICE: VoiceInputService | None = None
 
 
 class CreateLearningSessionRequest(BaseModel):
@@ -66,6 +72,15 @@ class SubmissionPhotoDraftResponse(BaseModel):
     question_text: str = ""
     child_answer: str = ""
     work_steps: str = ""
+    confidence: float = 0.0
+    needs_confirmation: bool = True
+
+
+class SubmissionVoiceDraftResponse(BaseModel):
+    source_type: str = "voice"
+    audio_path: str
+    raw_text: str
+    transcript: str = ""
     confidence: float = 0.0
     needs_confirmation: bool = True
 
@@ -114,6 +129,23 @@ def get_photo_review_service() -> PhotoReviewService:
             learning_service=get_learning_service(),
         )
     return _PHOTO_REVIEW_SERVICE
+
+
+def get_voice_input_service() -> VoiceInputService:
+    global _VOICE_INPUT_SERVICE
+    if _VOICE_INPUT_SERVICE is None:
+        asr_provider_name = os.getenv("SONGGUO_ASR_PROVIDER") or ""
+        asr_model = os.getenv("SONGGUO_ASR_MODEL") or "whisper-1"
+        asr_provider = (
+            OpenAICompatibleASRProvider(model=asr_model)
+            if asr_provider_name == "openai"
+            else DeterministicASRProvider()
+        )
+        _VOICE_INPUT_SERVICE = VoiceInputService(
+            artifact_root=Path("data/user/learning_artifacts"),
+            asr_provider=asr_provider,
+        )
+    return _VOICE_INPUT_SERVICE
 
 
 def _authorize_child(child_id: str, session_token: str | None) -> None:
@@ -259,6 +291,30 @@ async def create_submission_photo_draft(
         question_text=draft.question_text,
         child_answer=draft.child_answer,
         work_steps=draft.work_steps,
+        confidence=draft.confidence,
+        needs_confirmation=draft.needs_confirmation,
+    )
+
+
+@router.post("/submissions/voice-draft", response_model=SubmissionVoiceDraftResponse)
+async def create_submission_voice_draft(
+    child_id: str = Form(...),
+    subject: str = Form("math"),
+    grade: int = Form(3),
+    file: UploadFile = File(...),
+    x_session_token: str | None = Header(None, alias="X-Session-Token"),
+) -> SubmissionVoiceDraftResponse:
+    _authorize_child(child_id, x_session_token)
+    content = await file.read()
+    audio_path, draft = await get_voice_input_service().recognize_submission_draft_async(
+        filename=file.filename or "voice.mp3",
+        content=content,
+        content_type=file.content_type or "application/octet-stream",
+    )
+    return SubmissionVoiceDraftResponse(
+        audio_path=audio_path,
+        raw_text=draft.transcript,
+        transcript=draft.transcript,
         confidence=draft.confidence,
         needs_confirmation=draft.needs_confirmation,
     )

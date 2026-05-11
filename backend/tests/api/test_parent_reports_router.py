@@ -122,6 +122,30 @@ def test_parent_session_feedback_for_submission_tutor_keeps_full_item_evidence()
     assert "陪练后孩子改答“每只7颗，还剩1颗”" in payload["evidence"]
 
 
+def test_parent_wrong_questions_for_submission_exposes_tutor_session_id() -> None:
+    app = FastAPI()
+    store = InMemoryLearningStore()
+    service = LearningService(store=store)
+    created = service.create_submission(
+        child_id="child_001",
+        subject="math",
+        grade=3,
+        source_type="text",
+        raw_text="36颗松果平均分给5只松鼠，每只最多分几颗，还剩几颗？\n孩子答案：每只6颗，还剩6颗",
+    )
+    confirmed = service.confirm_submission(created.submission_id)
+    assert confirmed.active_tutor_session_id is not None
+    parent_router_module.get_learning_store = lambda: store
+    app.include_router(router, prefix="/api/v1/parent")
+
+    with TestClient(app) as client:
+        res = client.get("/api/v1/parent/children/child_001/wrong-questions")
+
+    assert res.status_code == 200
+    payload = res.json()
+    assert payload["items"][0]["session_id"] == confirmed.active_tutor_session_id
+
+
 def test_parent_learning_deposit_endpoint_returns_structured_learning_asset() -> None:
     app = FastAPI()
     store = InMemoryLearningStore()

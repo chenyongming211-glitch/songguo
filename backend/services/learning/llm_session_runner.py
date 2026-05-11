@@ -298,6 +298,10 @@ def build_llm_session_prompt(
             "teacher_move_priority": [
                 "先判断 learner_readiness。",
                 "如果 learner_readiness=not_ready，teacher_move 必须是 pause_learning，phase 必须是 LEARNING_PAUSED，child_message 不要继续推进题目。",
+                "如果孩子只是要最终答案，learner_readiness=ready，child_answer_status=answer_seeking，teacher_move=refuse_direct_answer，phase=WAIT_CHILD_ATTEMPT；拒绝直接给答案，只引导下一小步。",
+                "如果孩子跑题、想玩、闲聊但没有明确暂停学习，learner_readiness=needs_support，child_answer_status=off_task，teacher_move=redirect_to_learning，phase=WAIT_CHILD_ATTEMPT；简短接住后拉回当前题。",
+                "如果孩子表示现在可以继续、想接着做，learner_readiness=ready，child_answer_status=resume_request，teacher_move=continue_tutoring，phase=WAIT_CHILD_ATTEMPT；接上 latest_assistant_message 的下一小步。",
+                "如果孩子说不会、看不懂、没思路但没有拒绝学习，learner_readiness=needs_support，child_answer_status=confused，teacher_move=simplify，phase=WAIT_CHILD_ATTEMPT。",
                 "先判断 latest_child_answer 是 correct、partial、wrong 还是 unclear。",
                 "如果 wrong 或 unclear，不要肯定答案，先问一个诊断问题。",
                 "如果 partial，只肯定已确认的部分，再问下一小步。",
@@ -336,7 +340,7 @@ def build_llm_session_prompt(
             "teaching_intent": {
                 "learner_readiness": "ready | needs_support | not_ready | safety_risk",
                 "child_answer_status": "correct | partial | wrong | unclear | math_attempt | confused | answer_seeking | learning_resistance | wellbeing_not_ready | off_task | safety_risk | unknown",
-                "teacher_move": "ask_diagnostic_question | ask_next_step | simplify | refuse_direct_answer | pause_learning | summarize | generate_practice | safety_response",
+                "teacher_move": "ask_diagnostic_question | ask_next_step | simplify | refuse_direct_answer | pause_learning | redirect_to_learning | continue_tutoring | summarize | generate_practice | safety_response",
                 "should_reveal_final_answer": False,
                 "next_question": "本轮只问孩子的一个问题",
             },

@@ -112,7 +112,7 @@
 
   <view wx:if="{{summaryDraft}}" class="input-card card">
     <view class="section-header-line">
-      <text class="section-title">阶段总结</text>
+      <text class="section-title">报告草稿</text>
       <text class="chip chip-accent">{{summaryDraft.scope_label}}</text>
     </view>
     <text class="section-text">{{summaryDraft.parent_summary}}</text>
@@ -156,7 +156,7 @@
 
   <view class="input-card card">
     <view class="section-header-line">
-      <text class="section-title">安全保护记录</text>
+      <text class="section-title">安全拦截记录</text>
       <text class="chip chip-danger">孩子保护</text>
     </view>
     <text wx:if="{{!safetyEvents.length}}" class="section-text">

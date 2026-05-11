@@ -19,7 +19,7 @@ Tutor State Contract v2 不是 LangChain 或 LangGraph 自带能力，而是松�
 - `learner_readiness`: `ready`、`needs_support`、`not_ready`、`safety_risk`
 - `intent`: `math_attempt`、`confused`、`answer_seeking`、`learning_resistance`、`wellbeing_not_ready`、`off_task`、`safety_risk`、`unknown`
 - `correctness`: `correct`、`partial`、`wrong`、`unknown`
-- `next_action`: `continue_tutoring`、`simplify`、`refuse_direct_answer`、`pause_learning`、`ask_hint`、`ask_check`、`generate_practice`、`summarize`、`clarify`、`safety_response`
+- `next_action`: `continue_tutoring`、`simplify`、`redirect_to_learning`、`refuse_direct_answer`、`pause_learning`、`ask_hint`、`ask_check`、`generate_practice`、`summarize`、`clarify`、`safety_response`
 - `child_message`: 给孩子看的自然语言
 - `learning_deposit_delta`: 本轮学习沉淀增量
 - `practice_items`: 同类题
@@ -146,7 +146,7 @@ Tutor Contract 不能把正常教学内容当成安全内容过滤器处理。�
 
 - `teaching_intent.learner_readiness`: `ready | needs_support | not_ready | safety_risk`
 - `teaching_intent.child_answer_status`: `correct | partial | wrong | unclear | math_attempt | confused | answer_seeking | learning_resistance | wellbeing_not_ready | off_task | safety_risk | unknown`
-- `teaching_intent.teacher_move`: `ask_diagnostic_question | ask_next_step | simplify | refuse_direct_answer | pause_learning | summarize | generate_practice | safety_response`
+- `teaching_intent.teacher_move`: `ask_diagnostic_question | ask_next_step | simplify | refuse_direct_answer | pause_learning | redirect_to_learning | continue_tutoring | summarize | generate_practice | safety_response`
 - `teaching_intent.should_reveal_final_answer`
 - `teaching_intent.next_question`
 - `self_check.praised_wrong_answer`

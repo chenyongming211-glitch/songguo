@@ -122,10 +122,10 @@ assert.ok(
   "photo entry should recognize homework and prefill submission review"
 );
 assert.ok(
-  chatListScript.includes("语音识别还在接入中") &&
-    chatListScript.includes('navigateToSubmissionReview("voice"') &&
-    chatListScript.includes("initialText"),
-  "voice entry should fail softly into the unified review page"
+  chatListScript.includes("recognizeSubmissionVoice") &&
+    chatListScript.includes("recordHomeworkVoice") &&
+    chatListScript.includes('navigateToSubmissionReview("voice"'),
+  "voice entry should run ASR before entering the unified review page"
 );
 assert.ok(chatListMarkup.includes("learner-pill-row"), "home learner status should be compact");
 assert.ok(!chatListMarkup.includes("learner-strip card"), "home learner selector must not be a large card");

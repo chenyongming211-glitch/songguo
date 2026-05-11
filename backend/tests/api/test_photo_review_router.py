@@ -117,6 +117,31 @@ def test_submission_photo_draft_preserves_multiline_homework_text(tmp_path) -> N
     assert "甲仓库有560袋米" in payload["raw_text"]
 
 
+def test_submission_voice_draft_transcribes_audio_without_creating_legacy_session(tmp_path) -> None:
+    with TestClient(_build_app(tmp_path)) as client:
+        res = client.post(
+            "/api/v1/learning/submissions/voice-draft",
+            data={"child_id": "child_001", "subject": "math", "grade": "4"},
+            files={
+                "file": (
+                    "homework.txt",
+                    "TRANSCRIPT: 甲仓库有560袋米，乙仓库有420袋，甲运给乙80袋后，甲比乙少还是多多少袋？孩子答案：甲多20袋".encode(
+                        "utf-8"
+                    ),
+                    "text/plain",
+                )
+            },
+        )
+        sessions = client.get("/api/v1/learning/sessions?child_id=child_001").json()
+
+    assert res.status_code == 200
+    payload = res.json()
+    assert payload["source_type"] == "voice"
+    assert "甲仓库有560袋米" in payload["raw_text"]
+    assert payload["transcript"] == payload["raw_text"]
+    assert sessions["sessions"] == []
+
+
 def test_photo_review_confirm_endpoint_grades_corrected_text(tmp_path) -> None:
     with TestClient(_build_app(tmp_path)) as client:
         created = client.post(

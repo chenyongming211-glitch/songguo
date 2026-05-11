@@ -3,6 +3,7 @@ const {
   listChildren,
   listLearningSessions,
   recognizeSubmissionPhoto,
+  recognizeSubmissionVoice,
   upsertChild,
 } = require("../../lib/api");
 const { getBackendConfig } = require("../../lib/config");
@@ -68,6 +69,46 @@ function chooseHomeworkImage() {
   });
 }
 
+function recordHomeworkVoice() {
+  return new Promise((resolve, reject) => {
+    if (!wx.getRecorderManager) {
+      reject(new Error("当前微信环境不支持录音"));
+      return;
+    }
+    const recorder = wx.getRecorderManager();
+    let settled = false;
+    recorder.onStop((response) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      if (response && response.tempFilePath) {
+        resolve(response.tempFilePath);
+        return;
+      }
+      reject(new Error("没有录到语音"));
+    });
+    recorder.onError((error) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      reject(new Error((error && error.errMsg) || "录音失败"));
+    });
+    wx.showToast({
+      title: "开始录音，请说题目和答案",
+      icon: "none",
+    });
+    recorder.start({
+      duration: 10000,
+      sampleRate: 16000,
+      numberOfChannels: 1,
+      encodeBitRate: 48000,
+      format: "mp3",
+    });
+  });
+}
+
 function buildRecognizedSubmissionText(review) {
   const rawText = String((review && review.raw_text) || "").trim();
   if (rawText) {
@@ -96,6 +137,7 @@ Page({
     selectedChildGradeText: "3 年级",
     children: [],
     recognizingPhoto: false,
+    recognizingVoice: false,
   },
 
   onShow() {
@@ -202,12 +244,27 @@ Page({
     }
   },
 
-  handleStartVoiceSubmission() {
-    wx.showToast({
-      title: "语音识别还在接入中，请先输入文字",
-      icon: "none",
-    });
-    this.navigateToSubmissionReview("voice", "");
+  async handleStartVoiceSubmission() {
+    if (this.data.recognizingVoice) {
+      return;
+    }
+    this.setData({ recognizingVoice: true, error: "" });
+    try {
+      const filePath = await recordHomeworkVoice();
+      const draft = await recognizeSubmissionVoice(filePath, this.data.childId, "math");
+      const initialText = String((draft && (draft.raw_text || draft.transcript)) || "").trim();
+      if (!initialText) {
+        wx.showToast({
+          title: "没听清楚，请手动确认",
+          icon: "none",
+        });
+      }
+      this.navigateToSubmissionReview("voice", initialText);
+    } catch (error) {
+      this.setData({ error: formatUserFacingError(error) });
+    } finally {
+      this.setData({ recognizingVoice: false });
+    }
   },
 
   handleChildChange(event) {
