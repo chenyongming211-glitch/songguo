@@ -1,0 +1,72 @@
+<view class="page">
+  <view class="hero-card settings-hero card">
+    <text class="hero-label">连接配置</text>
+    <text class="hero-title">把松果AI业务后端接进小程序。</text>
+    <text class="hero-subtitle">
+      开发者工具阶段可以先连本地地址；真机和正式环境再切到你自己的 HTTPS 域名。
+    </text>
+    <view class="connection-path">
+      <text class="path-node">小程序</text>
+      <view class="path-line"></view>
+      <text class="path-node path-node-active">BFF</text>
+      <view class="path-line"></view>
+      <text class="path-node">AI引擎</text>
+    </view>
+  </view>
+
+  <view class="input-card card config-card">
+    <view class="section-header-line">
+      <text class="section-title">后端地址</text>
+      <text class="chip">主链路</text>
+    </view>
+    <text class="section-text">用于 REST 请求，例如 /api/v1/learning/session 和 /api/v1/system/status。</text>
+    <input
+      class="text-input"
+      value="{{httpBaseUrl}}"
+      bindinput="handleHttpInput"
+      placeholder="http://127.0.0.1:8001"
+    />
+  </view>
+
+  <view class="input-card card config-card">
+    <view class="section-header-line">
+      <text class="section-title">系统状态</text>
+      <text class="chip chip-accent">连接诊断</text>
+    </view>
+    <text class="section-text">这里只测 /api/v1/system/status，足够确认后端和模型是否就绪。</text>
+    <text class="section-text">微信模式：{{wechatMode}}</text>
+    <view class="button-row">
+      <button class="button-secondary" bindtap="handleSave">保存配置</button>
+      <button class="button-primary" bindtap="handleTest" loading="{{testing}}">测试连接</button>
+      <button class="button-subtle" bindtap="handleReset">恢复默认值</button>
+    </view>
+    <text wx:if="{{lastChecked}}" class="tiny-note">最近测试：{{lastChecked}}</text>
+  </view>
+
+  <view wx:if="{{error}}" class="error-card">{{error}}</view>
+
+  <view wx:if="{{status}}" class="status-grid">
+    <view class="status-item card">
+      <view class="status-badge"></view>
+      <text class="status-label">Backend</text>
+      <text class="status-value">{{status.backend.status}}</text>
+    </view>
+    <view class="status-item card">
+      <view class="status-badge"></view>
+      <text class="status-label">LLM</text>
+      <text class="status-value">{{status.llm.status}} · {{status.llm.model}}</text>
+    </view>
+    <view class="status-item card">
+      <view class="status-badge"></view>
+      <text class="status-label">Embeddings</text>
+      <text class="status-value">
+        {{status.embeddings.status}} · {{status.embeddings.model}}
+      </text>
+    </view>
+    <view class="status-item card">
+      <view class="status-badge"></view>
+      <text class="status-label">Search</text>
+      <text class="status-value">{{status.search.status}} · {{status.search.provider}}</text>
+    </view>
+  </view>
+</view>

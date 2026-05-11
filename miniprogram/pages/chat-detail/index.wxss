@@ -1,0 +1,240 @@
+.detail-page {
+  padding-top: 22rpx;
+}
+
+.lesson-top {
+  padding: 24rpx 26rpx;
+  background:
+    radial-gradient(circle at 92% 0%, rgba(250, 204, 21, 0.22), transparent 36%),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(255, 249, 235, 0.94));
+}
+
+.lesson-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20rpx;
+}
+
+.lesson-kicker {
+  display: block;
+  color: #0f766e;
+  font-size: 21rpx;
+  font-weight: 900;
+  letter-spacing: 1rpx;
+}
+
+.lesson-title {
+  display: block;
+  margin-top: 6rpx;
+  color: #1c1917;
+  font-size: 35rpx;
+  font-weight: 950;
+  line-height: 1.2;
+}
+
+.learner-mini {
+  flex-shrink: 0;
+  max-width: 260rpx;
+  padding: 10rpx 16rpx;
+  border-radius: 999rpx;
+  background: rgba(240, 253, 250, 0.9);
+  color: #0f766e;
+  font-size: 21rpx;
+  font-weight: 850;
+  line-height: 1.35;
+  text-align: right;
+}
+
+.lesson-subtitle {
+  display: block;
+  margin-top: 12rpx;
+  color: #625b50;
+  font-size: 24rpx;
+  line-height: 1.55;
+}
+
+.question-card {
+  margin-top: 16rpx;
+  padding: 24rpx 26rpx;
+  background:
+    linear-gradient(145deg, rgba(236, 253, 245, 0.96), rgba(255, 251, 235, 0.94));
+  border-color: rgba(15, 118, 110, 0.16);
+}
+
+.question-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18rpx;
+  margin-bottom: 12rpx;
+}
+
+.question-label {
+  color: #0f766e;
+  font-size: 22rpx;
+  font-weight: 950;
+  letter-spacing: 1rpx;
+}
+
+.question-state {
+  color: #8a6400;
+  font-size: 21rpx;
+  font-weight: 850;
+}
+
+.question-text,
+.question-placeholder {
+  display: block;
+  color: #1f2937;
+  font-size: 30rpx;
+  font-weight: 850;
+  line-height: 1.55;
+  word-break: break-word;
+}
+
+.question-placeholder {
+  color: #6b675d;
+  font-size: 26rpx;
+  font-weight: 750;
+}
+
+.compact-progress {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18rpx;
+  margin-top: 14rpx;
+  padding: 18rpx 22rpx;
+  background: rgba(255, 255, 255, 0.84);
+}
+
+.progress-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.progress-label {
+  display: block;
+  color: #786b59;
+  font-size: 20rpx;
+  font-weight: 850;
+}
+
+.progress-title {
+  display: block;
+  margin-top: 6rpx;
+  color: #0f766e;
+  font-size: 27rpx;
+  font-weight: 950;
+  line-height: 1.32;
+}
+
+.progress-side {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8rpx;
+}
+
+.answer-state {
+  padding: 7rpx 13rpx;
+  border-radius: 999rpx;
+  font-size: 20rpx;
+  font-weight: 900;
+}
+
+.answer-state {
+  background: rgba(219, 251, 243, 0.94);
+  color: #0f766e;
+}
+
+.answer-state-open {
+  background: rgba(254, 243, 199, 0.96);
+  color: #a16207;
+}
+
+.message-scroll {
+  flex: 1;
+  min-height: 0;
+  margin-top: 14rpx;
+}
+
+.message-list {
+  display: flex;
+  flex-direction: column;
+  gap: 18rpx;
+  padding-bottom: 16rpx;
+}
+
+.message-row {
+  display: flex;
+}
+
+.message-row-user {
+  justify-content: flex-end;
+}
+
+.message-row-assistant {
+  justify-content: flex-start;
+}
+
+.message-bubble {
+  max-width: 88%;
+  padding: 22rpx 24rpx;
+  border-radius: 28rpx;
+}
+
+.message-bubble-user {
+  background: linear-gradient(135deg, #0f766e 0%, #155e75 100%);
+  color: #ffffff;
+  border-bottom-right-radius: 10rpx;
+}
+
+.message-bubble-assistant {
+  background: rgba(255, 255, 255, 0.98);
+  color: #111827;
+  border: 1rpx solid rgba(188, 170, 148, 0.24);
+  border-bottom-left-radius: 10rpx;
+  box-shadow: 0 14rpx 34rpx rgba(61, 44, 25, 0.08);
+}
+
+.message-role {
+  display: block;
+  margin-bottom: 8rpx;
+  font-size: 22rpx;
+  font-weight: 800;
+  opacity: 0.78;
+}
+
+.message-text {
+  display: block;
+  font-size: 28rpx;
+  line-height: 1.68;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.composer {
+  margin-top: 12rpx;
+  padding: 20rpx;
+  border-radius: 30rpx;
+}
+
+.composer-label {
+  display: block;
+  margin-bottom: 10rpx;
+  color: #3f3a32;
+  font-size: 23rpx;
+  font-weight: 900;
+}
+
+.composer-input {
+  min-height: 116rpx;
+}
+
+.composer-actions {
+  justify-content: flex-end;
+  margin-top: 14rpx;
+}

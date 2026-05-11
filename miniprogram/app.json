@@ -1,0 +1,38 @@
+{
+  "pages": [
+    "pages/chat-list/index",
+    "pages/submission-review/index",
+    "pages/chat-detail/index",
+    "pages/parent-report/index",
+    "pages/settings/index"
+  ],
+  "window": {
+    "navigationBarTitleText": "松果AI",
+    "navigationBarBackgroundColor": "#fff8ec",
+    "navigationBarTextStyle": "black",
+    "backgroundColor": "#fff8ec",
+    "backgroundTextStyle": "light"
+  },
+  "tabBar": {
+    "color": "#786b59",
+    "selectedColor": "#0f766e",
+    "backgroundColor": "#fff8ec",
+    "borderStyle": "black",
+    "list": [
+      {
+        "pagePath": "pages/chat-list/index",
+        "text": "学习"
+      },
+      {
+        "pagePath": "pages/parent-report/index",
+        "text": "家长"
+      },
+      {
+        "pagePath": "pages/settings/index",
+        "text": "设置"
+      }
+    ]
+  },
+  "style": "v2",
+  "sitemapLocation": "sitemap.json"
+}

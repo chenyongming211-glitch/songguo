@@ -1,0 +1,93 @@
+<view class="page submission-page">
+  <view class="submission-hero card">
+    <text class="hero-label">松果AI · {{sourceLabel}}</text>
+    <text class="hero-title">开始做题</text>
+    <text class="hero-subtitle">先提交题目和孩子答案，确认题目后查看判题概览，错题会进入松鼠博士陪练。</text>
+  </view>
+
+  <view wx:if="{{error}}" class="error-card">{{error}}</view>
+
+  <view wx:if="{{status === 'intake'}}" class="input-card card">
+    <text class="input-label">题目和孩子答案</text>
+    <textarea
+      class="text-area submission-input"
+      auto-height="true"
+      maxlength="-1"
+      value="{{inputValue}}"
+      bindinput="handleInput"
+      placeholder="例：36 颗平均分给 5 只，每只几颗，还剩几颗？&#10;孩子答案：每只 6 颗，还剩 6 颗"
+    />
+    <view class="button-row">
+      <button
+        class="button-primary"
+        bindtap="handleCreateSubmission"
+        loading="{{loading}}"
+        disabled="{{loading || !canSubmit}}"
+      >
+        提交题目
+      </button>
+    </view>
+  </view>
+
+  <view wx:else class="section-block">
+    <view class="section-heading">
+      <text class="section-title">确认题目</text>
+      <text class="section-text">请先看识别到的题目和孩子答案。确认后，系统会把正确题和错题都沉淀到学习档案。</text>
+    </view>
+
+    <view class="item-list">
+      <view wx:for="{{items}}" wx:key="item_id" class="submission-item card">
+        <view class="item-head">
+          <text class="item-index">第 {{item.item_index}} 题</text>
+          <text class="result-chip {{item.resultClass}}">{{item.resultLabel}}</text>
+        </view>
+        <text class="item-question">{{item.question_text}}</text>
+        <text class="item-answer">孩子答案：{{item.answerText}}</text>
+        <text class="item-type">{{item.typeText}}</text>
+      </view>
+    </view>
+
+    <view wx:if="{{!confirmed}}" class="button-row">
+      <button
+        class="button-primary"
+        bindtap="handleConfirmSubmission"
+        loading="{{loading}}"
+        disabled="{{loading}}"
+      >
+        确认题目
+      </button>
+    </view>
+  </view>
+
+  <view wx:if="{{confirmed}}" class="summary-card card">
+    <view class="section-heading">
+      <text class="section-title">判题概览</text>
+      <text class="section-text">共 {{itemCount}} 题，正确 {{correctCount}} 题，错题 {{wrongCount}} 题。</text>
+    </view>
+    <view class="summary-grid">
+      <view class="summary-stat">
+        <text class="summary-value">{{correctCount}}</text>
+        <text class="summary-label">已记录正确</text>
+      </view>
+      <view class="summary-stat">
+        <text class="summary-value summary-wrong">{{wrongCount}}</text>
+        <text class="summary-label">进入陪练</text>
+      </view>
+      <view class="summary-stat">
+        <text class="summary-value">{{needsManualConfirmCount}}</text>
+        <text class="summary-label">待确认</text>
+      </view>
+    </view>
+    <button
+      wx:if="{{wrongCount}}"
+      class="button-primary tutor-button"
+      bindtap="handleStartWrongTutor"
+    >
+      开始讲错题
+    </button>
+    <view wx:else class="done-panel">
+      <text class="done-title">本次总结</text>
+      <text class="done-text">这次提交没有错题，系统已经记录本次掌握证据。</text>
+    </view>
+  </view>
+</view>

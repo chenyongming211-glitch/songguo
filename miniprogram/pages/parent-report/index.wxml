@@ -1,0 +1,218 @@
+<view class="page">
+  <view class="hero-card parent-hero card">
+    <text class="hero-label">家长 5 分钟行动报告</text>
+    <text class="hero-title">看孩子为什么卡住，而不是翻聊天记录。</text>
+    <text class="hero-subtitle">
+      反馈来自本次做题过程、错因和提示记录，家长不用翻完整对话也能看懂。
+    </text>
+    <view class="parent-ribbon">
+      <view class="ribbon-item">
+        <text class="ribbon-value">过程</text>
+        <text class="ribbon-label">提示轨迹</text>
+      </view>
+      <view class="ribbon-item">
+        <text class="ribbon-value">错因</text>
+        <text class="ribbon-label">薄弱点</text>
+      </view>
+      <view class="ribbon-item">
+        <text class="ribbon-value">复习</text>
+        <text class="ribbon-label">周月计划</text>
+      </view>
+    </view>
+    <view class="button-row">
+      <button class="button-primary" bindtap="handleRefresh" loading="{{loading}}">
+        刷新报告
+      </button>
+      <button
+        wx:if="{{experimentalFeaturesEnabled}}"
+        class="button-secondary"
+        bindtap="handleEnableReminder"
+        loading="{{loading}}"
+      >
+        开启复习提醒
+      </button>
+    </view>
+    <view class="scope-row">
+      <block wx:for="{{children}}" wx:key="child_id">
+        <button
+          class="scope-button {{childId === item.child_id ? 'scope-button-active' : ''}}"
+          data-child-id="{{item.child_id}}"
+          bindtap="handleChildChange"
+        >
+          {{item.name}}
+        </button>
+      </block>
+    </view>
+    <view class="scope-row">
+      <block wx:for="{{reviewScopes}}" wx:key="value">
+        <button
+          class="scope-button {{reviewScope === item.value ? 'scope-button-active' : ''}}"
+          data-scope="{{item.value}}"
+          bindtap="handleScopeChange"
+        >
+          {{item.label}}
+        </button>
+      </block>
+    </view>
+  </view>
+
+  <view wx:if="{{error}}" class="error-card">{{error}}</view>
+  <view wx:if="{{artifactMessage}}" class="state-card">{{artifactMessage}}</view>
+  <view wx:if="{{loading}}" class="state-card">正在汇总学习证据...</view>
+
+  <view wx:if="{{report}}" class="report-grid">
+    <view class="metric-card card">
+      <text class="metric-caption">累计</text>
+      <text class="metric-value">{{report.session_count}}</text>
+      <text class="metric-label">学习会话</text>
+    </view>
+    <view class="metric-card card">
+      <text class="metric-caption">沉淀</text>
+      <text class="metric-value">{{report.wrong_question_count}}</text>
+      <text class="metric-label">错题记录</text>
+    </view>
+    <view class="metric-card card">
+      <text class="metric-caption">平均</text>
+      <text class="metric-value">{{report.average_hint_level}}</text>
+      <text class="metric-label">平均提示等级</text>
+    </view>
+  </view>
+
+  <view wx:if="{{report}}" class="input-card card">
+    <text class="section-title">本周建议</text>
+    <text class="section-text">{{report.parent_summary}}</text>
+  </view>
+
+  <view wx:if="{{sessionFeedback}}" class="input-card card">
+    <view class="section-header-line">
+      <text class="section-title">本次学习反馈</text>
+      <text class="chip">本题卡点</text>
+    </view>
+    <text class="wrong-title">{{sessionFeedback.question_text}}</text>
+    <text class="section-text">{{sessionFeedback.summary}}</text>
+    <text class="wrong-meta">证据：{{sessionFeedback.evidence}}</text>
+    <text class="wrong-meta">下一步：练 {{sessionFeedback.next_practice_count}} 道同类题</text>
+  </view>
+
+  <view wx:if="{{learningDeposit}}" class="input-card card">
+    <view class="section-header-line">
+      <text class="section-title">学习资产沉淀</text>
+      <text class="chip">长期档案</text>
+    </view>
+    <text class="wrong-title">{{learningDeposit.question_record.knowledge_point_label}}</text>
+    <text class="section-text">{{learningDeposit.parent_summary}}</text>
+    <text wx:if="{{learningDeposit.mistake_record}}" class="wrong-meta">
+      本次错因：{{learningDeposit.mistake_record.main_error_reason_label}} · 孩子回答 {{learningDeposit.mistake_record.student_answer}}
+    </text>
+    <text class="wrong-meta">同类练习：{{learningDeposit.practice_records.length}} 道</text>
+    <block wx:for="{{learningDeposit.practice_records}}" wx:key="question">
+      <text class="action-line">· {{item.question}}</text>
+    </block>
+  </view>
+
+  <view wx:if="{{summaryDraft}}" class="input-card card">
+    <view class="section-header-line">
+      <text class="section-title">阶段总结</text>
+      <text class="chip chip-accent">{{summaryDraft.scope_label}}</text>
+    </view>
+    <text class="section-text">{{summaryDraft.parent_summary}}</text>
+    <block wx:for="{{summaryDraft.next_actions}}" wx:key="*this">
+      <text class="action-line">· {{item}}</text>
+    </block>
+  </view>
+
+  <view wx:if="{{memory}}" class="input-card card">
+    <view class="section-header-line">
+      <text class="section-title">薄弱项画像</text>
+      <text class="chip">长期观察</text>
+    </view>
+    <text class="section-text">{{memory.summary}}</text>
+    <block wx:for="{{memory.top_weaknesses}}" wx:key="knowledge_point">
+      <view class="memory-card">
+        <text class="wrong-title">{{item.knowledge_point_label}}</text>
+        <text class="wrong-meta">
+          掌握度 {{item.mastery_score}} · 风险 {{item.risk_level}} · 错 {{item.wrong_count}} 次
+        </text>
+      </view>
+    </block>
+    <block wx:for="{{memory.next_actions}}" wx:key="*this">
+      <text class="action-line">· {{item}}</text>
+    </block>
+  </view>
+
+  <view wx:if="{{reviewPlan}}" class="input-card card">
+    <view class="section-header-line">
+      <text class="section-title">阶段复习计划</text>
+      <text class="chip chip-accent">{{reviewScopeLabel}}</text>
+    </view>
+    <text class="section-text">{{reviewPlan.summary}}</text>
+    <block wx:for="{{reviewPlan.items}}" wx:key="question_id">
+      <view class="review-card">
+        <text class="wrong-title">{{item.normalized_question}}</text>
+        <text class="wrong-meta">{{item.reason}}</text>
+      </view>
+    </block>
+  </view>
+
+  <view class="input-card card">
+    <view class="section-header-line">
+      <text class="section-title">安全保护记录</text>
+      <text class="chip chip-danger">孩子保护</text>
+    </view>
+    <text wx:if="{{!safetyEvents.length}}" class="section-text">
+      暂无安全风险。系统会记录直接要答案、诱导泄露答案等需要保护孩子的情况。
+    </text>
+    <block wx:for="{{safetyEvents}}" wx:key="safety_event_id">
+      <view class="safety-card">
+        <text class="wrong-title">{{item.reason}}</text>
+        <text class="wrong-meta">{{item.event_type}}</text>
+      </view>
+    </block>
+  </view>
+
+  <view class="input-card card">
+    <view class="section-header-line">
+      <text class="section-title">错题证据</text>
+      <text class="chip chip-accent">可追溯</text>
+    </view>
+    <text wx:if="{{!wrongQuestions.length}}" class="section-text">
+      还没有错题记录。孩子完成一次错题引导后，这里会出现过程证据。
+    </text>
+    <block wx:for="{{wrongQuestions}}" wx:key="question_id">
+      <view class="wrong-card">
+        <text class="wrong-title">{{item.normalized_question}}</text>
+        <text class="wrong-meta">
+          {{item.knowledge_point_label}} · 提示等级 {{item.highest_hint_level}} · {{item.misconception_label || "未知错因"}}
+        </text>
+        <button
+          class="resolve-button"
+          data-question-id="{{item.question_id}}"
+          bindtap="handleMarkResolved"
+          disabled="{{loading}}"
+        >
+          标记已掌握
+        </button>
+        <button
+          wx:if="{{experimentalFeaturesEnabled}}"
+          class="resolve-button"
+          data-question="{{item.normalized_question}}"
+          data-knowledge-point="{{item.knowledge_point}}"
+          bindtap="handleGenerateDiagram"
+          disabled="{{loading}}"
+        >
+          生成图解卡
+        </button>
+        <button
+          wx:if="{{experimentalFeaturesEnabled}}"
+          class="resolve-button"
+          data-question="{{item.normalized_question}}"
+          data-knowledge-point="{{item.knowledge_point}}"
+          bindtap="handleRequestAnimation"
+          disabled="{{loading}}"
+        >
+          生成动态图解
+        </button>
+      </view>
+    </block>
+  </view>
+</view>

@@ -1,0 +1,81 @@
+<view class="page page-flex detail-page">
+  <view class="lesson-top card">
+    <view class="lesson-title-row">
+      <view>
+        <text class="lesson-kicker">松鼠博士</text>
+        <text class="lesson-title">{{sessionTitle}}</text>
+      </view>
+      <text class="learner-mini">{{selectedChildName}} · {{selectedChildGradeText}}</text>
+    </view>
+    <text class="lesson-subtitle">{{introSubtitle}}</text>
+  </view>
+
+  <view class="question-card card">
+    <view class="question-head">
+      <text class="question-label">题目</text>
+      <text class="question-state">{{statusNote}}</text>
+    </view>
+    <text wx:if="{{questionText}}" class="question-text">{{questionText}}</text>
+    <text wx:else class="question-placeholder">先输入或拍照一道题，松鼠博士会根据孩子回答继续追问。</text>
+  </view>
+
+  <view wx:if="{{sessionId}}" class="compact-progress card">
+    <view class="progress-main">
+      <text class="progress-label">学习方式</text>
+      <text class="progress-title">松鼠博士会根据孩子这一步继续提问</text>
+    </view>
+    <view class="progress-side">
+      <text class="answer-state {{answerUnlocked ? 'answer-state-open' : ''}}">
+        {{teachingProgress.answer_policy_label}}
+      </text>
+    </view>
+  </view>
+
+  <view wx:if="{{error}}" class="error-card">{{error}}</view>
+
+  <scroll-view class="message-scroll" scroll-y="true" scroll-into-view="{{scrollTarget}}">
+    <view class="message-list">
+      <view wx:if="{{loadingHistory}}" class="state-card">正在恢复学习状态...</view>
+
+      <view wx:elif="{{!messages.length}}" class="empty-card">
+        <text class="empty-title">{{emptyTitle}}</text>
+        <text class="empty-text">{{emptyText}}</text>
+      </view>
+
+      <block wx:for="{{messages}}" wx:key="clientId">
+        <view
+          id="{{item.clientId}}"
+          class="message-row {{item.role === 'user' ? 'message-row-user' : 'message-row-assistant'}}"
+        >
+          <view
+            class="message-bubble {{item.role === 'user' ? 'message-bubble-user' : 'message-bubble-assistant'}}"
+          >
+            <text class="message-role">{{item.roleLabel}}</text>
+            <text class="message-text">{{item.content}}</text>
+          </view>
+        </view>
+      </block>
+    </view>
+  </scroll-view>
+
+  <view class="composer card">
+    <text class="composer-label">{{composerLabel}}</text>
+    <textarea
+      class="text-area composer-input"
+      auto-height="true"
+      maxlength="-1"
+      value="{{inputValue}}"
+      bindinput="handleInput"
+      placeholder="{{inputPlaceholder}}"
+      disabled="{{tutorComposerDisabled}}"
+    />
+    <view class="button-row composer-actions">
+      <button class="button-secondary" bindtap="handleChoosePhoto" loading="{{uploadingPhoto}}" disabled="{{sending || uploadingPhoto}}">
+        拍照
+      </button>
+      <button class="button-primary" bindtap="handleSend" disabled="{{tutorComposerDisabled || sending || !canSend}}">
+        {{startButtonLabel}}
+      </button>
+    </view>
+  </view>
+</view>

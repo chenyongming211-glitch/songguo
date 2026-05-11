@@ -1,0 +1,246 @@
+const {
+  getSessionChildId,
+  listChildren,
+  listLearningSessions,
+  recognizeSubmissionPhoto,
+  upsertChild,
+} = require("../../lib/api");
+const { getBackendConfig } = require("../../lib/config");
+const { formatUserFacingError } = require("../../lib/errors");
+const { getSubjectModeLabel } = require("../../lib/learning-copy");
+const { formatTimestamp, shortenText } = require("../../lib/utils");
+
+function getChildGradeText(child) {
+  if (!child) {
+    return "3 年级";
+  }
+  if (child.grade) {
+    return `${child.grade} 年级`;
+  }
+  return child.term_label || "当前学期";
+}
+
+function toSessionViewModel(item) {
+  const progress = item.teaching_progress || {};
+  return {
+    ...item,
+    capabilityLabel: getSubjectModeLabel(item.subject),
+    message_count: item.attempt_count || 0,
+    progressLabel: progress.current_label || "动态引导",
+    preview: shortenText(item.current_prompt || "还没有提示", 92),
+    updatedLabel: formatTimestamp(item.updated_at) || "刚刚",
+  };
+}
+
+function chooseHomeworkImage() {
+  return new Promise((resolve, reject) => {
+    if (wx.chooseMedia) {
+      wx.chooseMedia({
+        count: 1,
+        mediaType: ["image"],
+        sourceType: ["camera", "album"],
+        success: (response) => {
+          const file = response.tempFiles && response.tempFiles[0];
+          if (file && file.tempFilePath) {
+            resolve(file.tempFilePath);
+            return;
+          }
+          reject(new Error("没有选择图片"));
+        },
+        fail: (error) => reject(new Error((error && error.errMsg) || "选择图片失败")),
+      });
+      return;
+    }
+
+    wx.chooseImage({
+      count: 1,
+      sourceType: ["camera", "album"],
+      success: (response) => {
+        const filePath = response.tempFilePaths && response.tempFilePaths[0];
+        if (filePath) {
+          resolve(filePath);
+          return;
+        }
+        reject(new Error("没有选择图片"));
+      },
+      fail: (error) => reject(new Error((error && error.errMsg) || "选择图片失败")),
+    });
+  });
+}
+
+function buildRecognizedSubmissionText(review) {
+  const rawText = String((review && review.raw_text) || "").trim();
+  if (rawText) {
+    return rawText;
+  }
+  const questionText = String((review && review.question_text) || "").trim();
+  const childAnswer = String((review && review.child_answer) || "").trim();
+  const workSteps = String((review && review.work_steps) || "").trim();
+  return [
+    questionText,
+    childAnswer ? `孩子答案：${childAnswer}` : "",
+    workSteps ? `解题过程：${workSteps}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+Page({
+  data: {
+    backendBaseUrl: "",
+    sessions: [],
+    loading: false,
+    error: "",
+    childId: getSessionChildId(),
+    selectedChildName: "默认孩子",
+    selectedChildGradeText: "3 年级",
+    children: [],
+    recognizingPhoto: false,
+  },
+
+  onShow() {
+    const { httpBaseUrl } = getBackendConfig();
+    this.setData({ backendBaseUrl: httpBaseUrl });
+    this.ensureChildrenAndLoad();
+  },
+
+  async ensureChildrenAndLoad() {
+    this.setData({ loading: true, error: "" });
+    try {
+      let payload = await listChildren();
+      let children = payload.children || [];
+      if (!children.length) {
+        const created = await upsertChild({
+          childId: getSessionChildId(),
+          name: "默认孩子",
+          grade: 3,
+          termLabel: "当前学期",
+        });
+        children = [created];
+      }
+      const selected = children.find((item) => item.child_id === this.data.childId) || children[0];
+      this.setData({
+        children,
+        childId: selected.child_id,
+        selectedChildName: selected.name || "默认孩子",
+        selectedChildGradeText: getChildGradeText(selected),
+      });
+      wx.setStorageSync("songguo_selected_child_id", selected.child_id);
+      await this.loadSessions();
+    } catch (error) {
+      this.setData({
+        error: formatUserFacingError(error),
+      });
+    } finally {
+      this.setData({ loading: false });
+    }
+  },
+
+  async loadSessions() {
+    this.setData({ loading: true, error: "" });
+    try {
+      const payload = await listLearningSessions(this.data.childId);
+      const sessions = (payload.sessions || []).map(toSessionViewModel);
+      this.setData({ sessions });
+    } catch (error) {
+      this.setData({
+        error: formatUserFacingError(error),
+      });
+    } finally {
+      this.setData({ loading: false });
+      wx.stopPullDownRefresh();
+    }
+  },
+
+  onPullDownRefresh() {
+    this.loadSessions();
+  },
+
+  handleRefresh() {
+    this.ensureChildrenAndLoad();
+  },
+
+  handleCreateSession() {
+    this.handleStartSubmission({ currentTarget: { dataset: { sourceType: "text" } } });
+  },
+
+  handleStartSubmission(event) {
+    const sourceType = (event.currentTarget.dataset && event.currentTarget.dataset.sourceType) || "text";
+    this.navigateToSubmissionReview(sourceType, "");
+  },
+
+  navigateToSubmissionReview(sourceType, initialText) {
+    wx.navigateTo({
+      url: `/pages/submission-review/index?sourceType=${encodeURIComponent(
+        sourceType
+      )}&childId=${encodeURIComponent(this.data.childId)}&initialText=${encodeURIComponent(
+        initialText || ""
+      )}`,
+    });
+  },
+
+  async handleStartPhotoSubmission() {
+    if (this.data.recognizingPhoto) {
+      return;
+    }
+    this.setData({ recognizingPhoto: true, error: "" });
+    try {
+      const filePath = await chooseHomeworkImage();
+      const review = await recognizeSubmissionPhoto(filePath, this.data.childId, "math");
+      const initialText = buildRecognizedSubmissionText(review);
+      if (!initialText) {
+        wx.showToast({
+          title: "没识别清楚，请手动确认",
+          icon: "none",
+        });
+      }
+      this.navigateToSubmissionReview("photo", initialText);
+    } catch (error) {
+      this.setData({ error: formatUserFacingError(error) });
+    } finally {
+      this.setData({ recognizingPhoto: false });
+    }
+  },
+
+  handleStartVoiceSubmission() {
+    wx.showToast({
+      title: "语音识别还在接入中，请先输入文字",
+      icon: "none",
+    });
+    this.navigateToSubmissionReview("voice", "");
+  },
+
+  handleChildChange(event) {
+    const childId = event.currentTarget.dataset.childId || getSessionChildId();
+    if (childId === this.data.childId) {
+      return;
+    }
+    const selected = this.data.children.find((item) => item.child_id === childId);
+    this.setData({
+      childId,
+      selectedChildName: (selected && selected.name) || "默认孩子",
+      selectedChildGradeText: getChildGradeText(selected),
+    });
+    wx.setStorageSync("songguo_selected_child_id", childId);
+    this.loadSessions();
+  },
+
+  handleOpenSession(event) {
+    const { sessionId } = event.currentTarget.dataset;
+    if (!sessionId) {
+      return;
+    }
+    wx.navigateTo({
+      url: `/pages/chat-detail/index?sessionId=${encodeURIComponent(
+        sessionId
+      )}&questionText=${encodeURIComponent(event.currentTarget.dataset.questionText || "")}`,
+    });
+  },
+
+  handleSessionActions() {
+    wx.showToast({
+      title: "学习会话暂不支持删除",
+      icon: "none",
+    });
+  },
+});
