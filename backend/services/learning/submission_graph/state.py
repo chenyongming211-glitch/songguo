@@ -17,6 +17,9 @@ class LearningSubmissionGraphState(BaseModel):
     grade: int = 3
     source_type: SourceType = SourceType.TEXT
     raw_text: str = ""
+    image_refs: list[str] = Field(default_factory=list)
+    item_bboxes: dict[int, dict[str, int]] = Field(default_factory=dict)
+    item_metadata: dict[int, dict[str, Any]] = Field(default_factory=dict)
     item_count: int = 0
     correct_count: int = 0
     wrong_count: int = 0

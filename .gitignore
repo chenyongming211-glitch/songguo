@@ -1,10 +1,23 @@
 .DS_Store
 .env
+.claude/
+zhaopian/
 .pytest_cache/
 __pycache__/
 *.py[cod]
 
-data/
+data/*
+!data/evaluation/
+data/evaluation/*
+!data/evaluation/ocr_samples/
+data/evaluation/ocr_samples/*
+!data/evaluation/ocr_samples/README.md
+!data/evaluation/ocr_samples/manifest.jsonl
+!data/evaluation/ocr_samples/fixtures/
+data/evaluation/ocr_samples/fixtures/*
+!data/evaluation/ocr_samples/fixtures/*.txt
+!data/evaluation/ocr_samples/images/
+data/evaluation/ocr_samples/images/*
 *.db
 *.sqlite
 *.sqlite3
@@ -12,4 +25,3 @@ data/
 node_modules/
 dist/
 build/
-

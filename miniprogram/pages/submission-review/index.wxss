@@ -14,6 +14,139 @@
   min-height: 250rpx;
 }
 
+.recognition-summary {
+  margin: 18rpx 0;
+  padding: 20rpx 22rpx;
+  border-radius: 20rpx;
+  background: rgba(240, 253, 250, 0.86);
+  border: 1rpx solid rgba(15, 118, 110, 0.14);
+}
+
+.recognition-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14rpx;
+}
+
+.recognition-title {
+  color: #0f766e;
+  font-size: 28rpx;
+  font-weight: 950;
+}
+
+.recognition-confidence {
+  flex-shrink: 0;
+  color: #92400e;
+  font-size: 25rpx;
+  font-weight: 850;
+}
+
+.recognition-text {
+  display: block;
+  margin-top: 10rpx;
+  color: #3f3a32;
+  font-size: 28rpx;
+  line-height: 1.55;
+}
+
+.quality-warning {
+  display: block;
+  margin-top: 12rpx;
+  color: #b45309;
+  font-size: 27rpx;
+  font-weight: 850;
+  line-height: 1.5;
+}
+
+.photo-overlay-panel {
+  margin-bottom: 24rpx;
+  padding: 18rpx;
+}
+
+.photo-stage {
+  position: relative;
+  overflow: hidden;
+  width: 100%;
+  border-radius: 18rpx;
+  background: #111827;
+}
+
+.photo-image {
+  display: block;
+  width: 100%;
+}
+
+.overlay-item {
+  position: absolute;
+  box-sizing: border-box;
+  border: 4rpx solid rgba(250, 204, 21, 0.92);
+  border-radius: 14rpx;
+  background: rgba(250, 204, 21, 0.1);
+  box-shadow: 0 12rpx 28rpx rgba(28, 25, 23, 0.2);
+  pointer-events: none;
+}
+
+.overlay-marker {
+  position: absolute;
+  top: -22rpx;
+  right: -18rpx;
+  width: 54rpx;
+  height: 54rpx;
+  border-radius: 50%;
+  color: #ffffff;
+  font-size: 34rpx;
+  font-weight: 950;
+  line-height: 54rpx;
+  text-align: center;
+  box-shadow: 0 10rpx 20rpx rgba(28, 25, 23, 0.22);
+}
+
+.overlay-caption {
+  position: absolute;
+  left: 10rpx;
+  bottom: 8rpx;
+  max-width: calc(100% - 20rpx);
+  padding: 5rpx 10rpx;
+  border-radius: 999rpx;
+  background: rgba(28, 25, 23, 0.72);
+  color: #ffffff;
+  font-size: 22rpx;
+  font-weight: 850;
+  line-height: 1.2;
+}
+
+.overlay-correct {
+  border-color: rgba(34, 197, 94, 0.95);
+  background: rgba(34, 197, 94, 0.1);
+}
+
+.overlay-correct .overlay-marker {
+  background: #16a34a;
+}
+
+.overlay-wrong {
+  border-color: rgba(244, 63, 94, 0.95);
+  background: rgba(244, 63, 94, 0.12);
+}
+
+.overlay-wrong .overlay-marker {
+  background: #e11d48;
+}
+
+.overlay-running {
+  border-color: rgba(59, 130, 246, 0.95);
+  background: rgba(59, 130, 246, 0.12);
+}
+
+.overlay-running .overlay-marker {
+  background: #2563eb;
+}
+
+.overlay-pending .overlay-marker {
+  background: #ca8a04;
+}
+
 .section-block {
   margin-top: 20rpx;
 }
@@ -38,7 +171,7 @@
 
 .item-index {
   color: #0f766e;
-  font-size: 24rpx;
+  font-size: 28rpx;
   font-weight: 900;
 }
 
@@ -46,7 +179,7 @@
   flex-shrink: 0;
   padding: 8rpx 16rpx;
   border-radius: 999rpx;
-  font-size: 21rpx;
+  font-size: 26rpx;
   font-weight: 900;
 }
 
@@ -65,10 +198,15 @@
   color: #a16207;
 }
 
+.result-running {
+  background: rgba(219, 234, 254, 0.96);
+  color: #1d4ed8;
+}
+
 .item-question {
   display: block;
   color: #1c1917;
-  font-size: 29rpx;
+  font-size: 32rpx;
   font-weight: 850;
   line-height: 1.55;
   word-break: break-word;
@@ -79,8 +217,51 @@
   display: block;
   margin-top: 12rpx;
   color: #5f5a50;
-  font-size: 24rpx;
-  line-height: 1.48;
+  font-size: 28rpx;
+  line-height: 1.55;
+}
+
+.item-correct-answer {
+  display: block;
+  margin-top: 12rpx;
+  padding: 14rpx 18rpx;
+  border-radius: 18rpx;
+  background: rgba(255, 247, 237, 0.96);
+  color: #9a3412;
+  font-size: 29rpx;
+  font-weight: 850;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.item-feedback {
+  display: block;
+  margin-top: 14rpx;
+  padding-left: 18rpx;
+  border-left: 6rpx solid rgba(15, 118, 110, 0.28);
+  color: #3f3a32;
+  font-size: 27rpx;
+  line-height: 1.55;
+  word-break: break-word;
+}
+
+.item-fallback {
+  display: block;
+  margin-top: 14rpx;
+  padding: 14rpx 18rpx;
+  border-radius: 18rpx;
+  background: rgba(255, 251, 235, 0.96);
+  color: #92400e;
+  font-size: 27rpx;
+  font-weight: 850;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.fallback-status {
+  margin-top: 8rpx;
+  color: #92400e;
+  font-weight: 850;
 }
 
 .summary-card {
@@ -120,8 +301,8 @@
   display: block;
   margin-top: 10rpx;
   color: #5f5a50;
-  font-size: 21rpx;
-  line-height: 1.35;
+  font-size: 26rpx;
+  line-height: 1.45;
 }
 
 .tutor-button {
@@ -147,6 +328,6 @@
   display: block;
   margin-top: 10rpx;
   color: #3f3a32;
-  font-size: 24rpx;
-  line-height: 1.6;
+  font-size: 30rpx;
+  line-height: 1.62;
 }

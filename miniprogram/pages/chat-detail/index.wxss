@@ -19,16 +19,16 @@
 .lesson-kicker {
   display: block;
   color: #0f766e;
-  font-size: 21rpx;
+  font-size: 26rpx;
   font-weight: 900;
-  letter-spacing: 1rpx;
+  letter-spacing: 0;
 }
 
 .lesson-title {
   display: block;
   margin-top: 6rpx;
   color: #1c1917;
-  font-size: 35rpx;
+  font-size: 38rpx;
   font-weight: 950;
   line-height: 1.2;
 }
@@ -40,7 +40,7 @@
   border-radius: 999rpx;
   background: rgba(240, 253, 250, 0.9);
   color: #0f766e;
-  font-size: 21rpx;
+  font-size: 25rpx;
   font-weight: 850;
   line-height: 1.35;
   text-align: right;
@@ -50,8 +50,8 @@
   display: block;
   margin-top: 12rpx;
   color: #625b50;
-  font-size: 24rpx;
-  line-height: 1.55;
+  font-size: 29rpx;
+  line-height: 1.58;
 }
 
 .question-card {
@@ -72,14 +72,14 @@
 
 .question-label {
   color: #0f766e;
-  font-size: 22rpx;
+  font-size: 26rpx;
   font-weight: 950;
-  letter-spacing: 1rpx;
+  letter-spacing: 0;
 }
 
 .question-state {
   color: #8a6400;
-  font-size: 21rpx;
+  font-size: 26rpx;
   font-weight: 850;
 }
 
@@ -87,7 +87,7 @@
 .question-placeholder {
   display: block;
   color: #1f2937;
-  font-size: 30rpx;
+  font-size: 32rpx;
   font-weight: 850;
   line-height: 1.55;
   word-break: break-word;
@@ -95,7 +95,7 @@
 
 .question-placeholder {
   color: #6b675d;
-  font-size: 26rpx;
+  font-size: 30rpx;
   font-weight: 750;
 }
 
@@ -117,7 +117,7 @@
 .progress-label {
   display: block;
   color: #786b59;
-  font-size: 20rpx;
+  font-size: 25rpx;
   font-weight: 850;
 }
 
@@ -125,7 +125,7 @@
   display: block;
   margin-top: 6rpx;
   color: #0f766e;
-  font-size: 27rpx;
+  font-size: 30rpx;
   font-weight: 950;
   line-height: 1.32;
 }
@@ -141,7 +141,7 @@
 .answer-state {
   padding: 7rpx 13rpx;
   border-radius: 999rpx;
-  font-size: 20rpx;
+  font-size: 25rpx;
   font-weight: 900;
 }
 
@@ -203,15 +203,15 @@
 .message-role {
   display: block;
   margin-bottom: 8rpx;
-  font-size: 22rpx;
+  font-size: 26rpx;
   font-weight: 800;
   opacity: 0.78;
 }
 
 .message-text {
   display: block;
-  font-size: 28rpx;
-  line-height: 1.68;
+  font-size: 30rpx;
+  line-height: 1.64;
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -226,7 +226,7 @@
   display: block;
   margin-bottom: 10rpx;
   color: #3f3a32;
-  font-size: 23rpx;
+  font-size: 28rpx;
   font-weight: 900;
 }
 

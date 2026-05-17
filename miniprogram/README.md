@@ -17,15 +17,18 @@ Current Songguo planning index: `/Users/chen/code/songguo/docs/README.md`.
 
 1. Open WeChat DevTools.
 2. Import `/Users/chen/code/songguo/miniprogram`.
-3. Use your own AppID or the DevTools tourist AppID.
-4. Keep the default local backend during laptop testing:
-   - HTTP: `http://127.0.0.1:8001`
-   - Settings now tests only `/api/v1/system/status`; the child-facing path does not use a WebSocket endpoint.
+3. Use the real Songguo mini-program AppID. `project.config.json` is configured with the current Songguo AppID.
+4. The default backend is the real mini-program API domain:
+   - HTTPS: `https://api.songguoxue.com`
+   - Settings tests `/api/v1/system/status`; the child-facing path does not use a WebSocket endpoint.
+5. For laptop-only backend testing, open Settings in the mini-program and override the backend address to a local URL. `project.private.config.json` keeps `urlCheck: false` for this local DevTools workflow.
 
 ## Real Device Notes
 
-- Real devices generally require whitelisted `https://` request domains.
-- Debug WebSocket connections should use `wss://`.
+- In WeChat Mini Program Admin, add `https://api.songguoxue.com` to both request and uploadFile legal domains before real-device testing.
+- Do not submit for public release when doing a private trial. Upload from WeChat DevTools as a development version, set it as an experience version, and add only your own WeChat account as an experience member.
+- `project.config.json` enables URL checking for upload/experience builds. Keep local-only overrides in `project.private.config.json`.
+- Debug WebSocket connections should use `wss://` if a future debug page re-enables raw socket testing.
 - External teaching engines are optional provider layers and are not the v0.1 main runtime.
 
 ## Local Mock vs Real WeChat
@@ -58,17 +61,30 @@ To enable a real vision model seam:
 
 ```bash
 export SONGGUO_PHOTO_OCR_PROVIDER=vision
-export SONGGUO_VISION_MODEL=your_vision_model_name
+export SONGGUO_VISION_BINDING=aliyun
+export SONGGUO_VISION_MODEL=qwen3.6-flash
+export SONGGUO_VISION_HOST=https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1
+export SONGGUO_VISION_API_KEY=your_api_key_here
+export SONGGUO_VISION_TIMEOUT_SECONDS=20
 ```
 
 The vision model must return JSON with:
 
 ```json
 {
+  "raw_text": "36 x 5 = ?\n孩子答案：360",
   "question_text": "36 x 5 = ?",
   "child_answer": "360",
   "work_steps": "optional",
-  "confidence": 0.88
+  "confidence": 0.88,
+  "items": [
+    {
+      "item_index": 1,
+      "question_text": "36 x 5 = ?",
+      "child_answer": "360",
+      "confidence": 0.88
+    }
+  ]
 }
 ```
 

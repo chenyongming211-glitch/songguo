@@ -22,6 +22,9 @@ from songguo.backend.services.learning.submission_models import (
 from songguo.backend.services.learning.tutor_graph.math_mistake_graph import (
     MathMistakeTutorGraph,
 )
+from songguo.backend.services.learning.tutor_graph.basic_subject_graph import (
+    BasicSubjectTutorGraph,
+)
 
 
 class LearningSubmissionGraph:
@@ -32,6 +35,10 @@ class LearningSubmissionGraph:
         session_runner: LLMSessionRunner | None = None,
         math_gateway: MathProblemStructuringGateway | None = None,
         tutor_graph: MathMistakeTutorGraph | None = None,
+        basic_tutor_graph: BasicSubjectTutorGraph | None = None,
+        basic_rubric_evaluator=None,
+        intent_router=None,
+        router_guard=None,
     ) -> None:
         self.store = store
         self.math_gateway = math_gateway or MathProblemStructuringGateway()
@@ -40,10 +47,15 @@ class LearningSubmissionGraph:
             session_runner=session_runner,
             math_gateway=self.math_gateway,
         )
+        self.basic_tutor_graph = basic_tutor_graph or BasicSubjectTutorGraph(store=store)
         self.nodes = LearningSubmissionGraphNodes(
             store=self.store,
             math_gateway=self.math_gateway,
             tutor_graph=self.tutor_graph,
+            basic_tutor_graph=self.basic_tutor_graph,
+            basic_rubric_evaluator=basic_rubric_evaluator,
+            intent_router=intent_router,
+            router_guard=router_guard,
         )
         self.graph = self._build_graph()
 
@@ -70,6 +82,9 @@ class LearningSubmissionGraph:
         grade: int,
         source_type: str,
         raw_text: str,
+        image_refs: list[str] | None = None,
+        item_bboxes: dict[int, dict[str, int]] | None = None,
+        item_metadata: dict[int, dict[str, object]] | None = None,
     ) -> LearningSubmissionGraphResult:
         return self.create_draft(
             child_id=child_id,
@@ -77,6 +92,9 @@ class LearningSubmissionGraph:
             grade=grade,
             source_type=source_type,
             raw_text=raw_text,
+            image_refs=image_refs,
+            item_bboxes=item_bboxes,
+            item_metadata=item_metadata,
         )
 
     def create_draft(
@@ -87,6 +105,9 @@ class LearningSubmissionGraph:
         grade: int,
         source_type: str,
         raw_text: str,
+        image_refs: list[str] | None = None,
+        item_bboxes: dict[int, dict[str, int]] | None = None,
+        item_metadata: dict[int, dict[str, object]] | None = None,
     ) -> LearningSubmissionGraphResult:
         state = LearningSubmissionGraphState(
             child_id=child_id,
@@ -94,13 +115,21 @@ class LearningSubmissionGraph:
             grade=grade,
             source_type=source_type,
             raw_text=raw_text,
+            image_refs=image_refs or [],
+            item_bboxes=item_bboxes or {},
+            item_metadata=item_metadata or {},
         )
         state = input_normalize_node(state)
         state = self.nodes.intake_parse_node(state)
         state = self.nodes.build_submission_summary_node(state)
         return self._result_from_state(state)
 
-    def confirm(self, submission_id: str) -> LearningSubmissionGraphResult:
+    def confirm(
+        self,
+        submission_id: str,
+        *,
+        start_tutor: bool = True,
+    ) -> LearningSubmissionGraphResult:
         submission = self.store.require_submission(submission_id)
         state = LearningSubmissionGraphState(
             submission_id=submission_id,
@@ -113,7 +142,8 @@ class LearningSubmissionGraph:
         )
         if submission.status == LearningSubmissionStatus.INTAKE_PENDING:
             state = self.nodes.structure_and_judge_items_node(state)
-        state = self.nodes.start_or_resume_active_wrong_item_node(state)
+        if start_tutor:
+            state = self.nodes.start_or_resume_active_wrong_item_node(state)
         state = self.nodes.build_submission_summary_node(state)
         return self._result_from_state(state)
 

@@ -396,7 +396,7 @@ Page({
     this.setData({
       loadingHistory: true,
       error: "",
-      statusNote: "正在进入错题队列...",
+      statusNote: "正在进入陪练队列...",
     });
     try {
       let payload = await getLearningSubmission(submissionId, this.data.childId);
@@ -405,13 +405,13 @@ Page({
       }
       await this.applySubmissionTutorSnapshot(payload, {
         streamPrompt: true,
-        statusNote: "正在讲错题",
+        statusNote: "正在陪练",
       });
     } catch (error) {
       const message = formatUserFacingError(error);
       this.setData({
         error: message,
-        statusNote: "错题队列加载失败",
+        statusNote: "陪练队列加载失败",
       });
     } finally {
       this.setData({ loadingHistory: false });
@@ -424,15 +424,15 @@ Page({
     const submission = payload.submission || {};
     if (attempt.message) {
       await this.streamAssistantMessage(attempt.message, {
-        statusNote: attempt.correct ? "这道错题已完成" : "已生成下一步提示",
+        statusNote: attempt.correct ? "这道题已完成" : "已生成下一步提示",
       });
     }
     const nextStatusNote =
       submission.status === "completed"
-        ? "本次错题已讲完"
+        ? "本次陪练已结束"
         : attempt.correct
-          ? "继续下一道错题"
-          : "继续这道错题";
+          ? "继续下一题"
+          : "继续这道题";
     await this.applySubmissionTutorSnapshot(submission, {
       streamPrompt: attempt.correct,
       statusNote: nextStatusNote,
@@ -533,7 +533,7 @@ Page({
     });
     const statusNote =
       (options && options.statusNote) ||
-      (payload.status === "completed" ? "本次错题已讲完" : "正在讲错题");
+      (payload.status === "completed" ? "本次陪练已结束" : "正在陪练");
     this.setData({
       submissionId: payload.submission_id || this.data.submissionId,
       submissionStatus: payload.status || this.data.submissionStatus,
@@ -549,18 +549,18 @@ Page({
       inputValue: completedTutor ? "" : this.data.inputValue,
       canSend: completedTutor ? false : this.data.canSend,
       inputPlaceholder: completedTutor
-        ? "本次错题陪练已结束，可以返回本次总结。"
+        ? "本次陪练已结束，可以返回本次总结。"
         : subjectCopy.inputPlaceholder,
       statusNote,
     });
     if (payload.status === "completed" && !active) {
-      await this.streamAssistantMessage("本次总结：这次提交里的错题已经讲完，系统会把这些题型放进近期复习。", {
+      await this.streamAssistantMessage("本次总结：这次提交里的陪练题已经讲完，系统会把这些题型放进近期复习。", {
         statusNote: "本次总结",
       });
       return;
     }
     if (active && options && options.streamPrompt) {
-      await this.streamAssistantMessage(active.current_prompt || "我们来看这道错题。");
+      await this.streamAssistantMessage(active.current_prompt || "我们来看这道题。");
     }
   },
 

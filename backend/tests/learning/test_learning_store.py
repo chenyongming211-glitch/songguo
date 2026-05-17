@@ -193,6 +193,36 @@ def test_record_ai_call_log_tracks_basic_cost_fields() -> None:
     assert logs[0].token_estimate == 18
 
 
+def test_record_ai_call_log_tracks_agent_latency_and_submission_metadata() -> None:
+    store = InMemoryLearningStore()
+
+    log = store.record_ai_call(
+        child_id="child_001",
+        session_id="sub_001",
+        provider="deepseek",
+        model="deepseek-v4-flash",
+        operation="intent_router.route",
+        token_estimate=0,
+        status="success",
+        agent="IntentRouterAgent",
+        latency_ms=342,
+        submission_id="sub_001",
+        confidence=0.91,
+        route_to="english_basic_tutor",
+        metadata={
+            "detected_subject": "english",
+            "detected_task_type": "grammar_fix",
+        },
+    )
+
+    assert log.agent == "IntentRouterAgent"
+    assert log.latency_ms == 342
+    assert log.submission_id == "sub_001"
+    assert log.confidence == 0.91
+    assert log.route_to == "english_basic_tutor"
+    assert log.metadata["detected_subject"] == "english"
+
+
 def test_learning_messages_are_persisted_separately_from_events() -> None:
     store = InMemoryLearningStore()
     session = store.create_session(

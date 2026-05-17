@@ -4,6 +4,7 @@ import time
 
 from songguo.backend.services.learning.ai_engine import (
     AIEngineContext,
+    DeepSeekProvider,
     DeterministicFallbackProvider,
     ProviderChain,
     ProviderError,
@@ -129,6 +130,14 @@ def test_provider_chain_default_timeout_allows_real_model_retry_window(monkeypat
     monkeypatch.delenv("SONGGUO_AI_PROVIDER_TIMEOUT_SECONDS", raising=False)
 
     assert _provider_timeout_from_env() == 20.0
+
+
+def test_deepseek_provider_defaults_to_deepseek_v4_flash(monkeypatch) -> None:
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+
+    provider = DeepSeekProvider()
+
+    assert provider.model_name == "deepseek-v4-flash"
 
 
 def test_fallback_provider_binds_skill_and_misconception_ids() -> None:

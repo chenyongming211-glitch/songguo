@@ -17,7 +17,7 @@
   border-radius: 999rpx;
   background: rgba(241, 245, 249, 0.9);
   color: #64748b;
-  font-size: 21rpx;
+  font-size: 26rpx;
   font-weight: 900;
 }
 
@@ -43,6 +43,39 @@
   align-items: center;
   justify-content: space-between;
   gap: 16rpx;
+}
+
+.config-card .button-row {
+  display: grid;
+  grid-template-columns: 1fr;
+}
+
+.service-card .button-row {
+  margin-top: 20rpx;
+}
+
+.service-label {
+  display: block;
+  margin-top: 12rpx;
+  color: #0f766e;
+  font-size: 34rpx;
+  font-weight: 900;
+  line-height: 1.35;
+}
+
+.advanced-toggle {
+  margin: 0 !important;
+  min-width: 150rpx;
+}
+
+.advanced-panel {
+  margin-top: 20rpx;
+  padding-top: 20rpx;
+  border-top: 1rpx solid rgba(148, 163, 184, 0.18);
+}
+
+.advanced-field {
+  margin-top: 20rpx;
 }
 
 .status-grid {

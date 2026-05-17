@@ -165,6 +165,7 @@ class MathFastPathRegistry:
         for analyzer in (
             self._analyze_remainder_division,
             self._analyze_unit_conversion,
+            self._analyze_transfer_comparison,
             self._analyze_perimeter,
             self._analyze_average,
             self._analyze_arithmetic_expression,
@@ -195,9 +196,15 @@ class MathFastPathRegistry:
         value = _safe_arithmetic_value(expression)
         if value is None:
             return None
-        if "/" in expression and isinstance(value, float) and not value.is_integer():
-            return None
         numbers = [int(item) for item in re.findall(r"\d+", expression)]
+        if "/" in expression and isinstance(value, float) and not value.is_integer():
+            return self._analyze_remainder_expression(
+                expression=expression,
+                numbers=numbers,
+                grade=grade,
+                subject=subject,
+                question_text=question_text,
+            )
         if _is_two_digit_times_five(expression, numbers):
             return self._analyze_times_five_expression(
                 expression=expression,
@@ -255,6 +262,57 @@ class MathFastPathRegistry:
                 source=self.source,
             ),
             question_text=question_text,
+        )
+
+    def _analyze_remainder_expression(
+        self,
+        *,
+        expression: str,
+        numbers: list[int],
+        grade: int,
+        subject: str,
+        question_text: str,
+    ) -> ProblemAnalysis | None:
+        if not re.fullmatch(r"\d+/\d+", expression) or len(numbers) != 2:
+            return None
+        total, divisor = numbers
+        if divisor <= 0:
+            return None
+        quotient, remainder = divmod(total, divisor)
+        answer = f"{quotient}余{remainder}"
+        display_expression = expression.replace("/", " ÷ ")
+        return self._analysis_from_parse(
+            LLMProblemParse(
+                subject=subject,
+                grade=grade,
+                problem_type="division_with_remainder",
+                skill_ids=["math_remainder_division"],
+                misconception_ids=["math_division_quotient_remainder_swap"],
+                knowledge_points=["有余数除法"],
+                conditions=[
+                    {"id": "dividend", "text": f"被除数是{total}", "value": total, "unit": ""},
+                    {"id": "divisor", "text": f"除数是{divisor}", "value": divisor, "unit": ""},
+                ],
+                target="求商和余数",
+                solution_steps=[
+                    {
+                        "id": "step_divide_with_remainder",
+                        "goal": "求商和余数",
+                        "expression": display_expression,
+                        "result": answer,
+                    }
+                ],
+                final_answer=answer,
+                common_misconceptions=[
+                    {
+                        "tag": "math_division_quotient_remainder_swap",
+                        "description": "把商和余数的位置写反。",
+                    }
+                ],
+                confidence=0.94,
+                source=self.source,
+            ),
+            question_text=question_text or display_expression,
         )
 
     def _analyze_times_five_expression(
@@ -369,6 +427,86 @@ class MathFastPathRegistry:
                     },
                 ],
                 confidence=0.93,
+                source=self.source,
+            ),
+            question_text=question_text,
+        )
+
+    def _analyze_transfer_comparison(
+        self,
+        *,
+        question_text: str,
+        grade: int,
+        subject: str,
+    ) -> ProblemAnalysis | None:
+        match = re.search(
+            r"甲[^，。；;]*?有(\d+)[^，。；;]*?[，,]\s*乙[^，。；;]*?有(\d+)[^，。；;]*?[，,]\s*甲[^，。；;]*?给乙(\d+)",
+            question_text,
+        )
+        if not match or "甲比乙" not in question_text:
+            return None
+        first = int(match.group(1))
+        second = int(match.group(2))
+        transferred = int(match.group(3))
+        first_after = first - transferred
+        second_after = second + transferred
+        difference = abs(first_after - second_after)
+        unit = "袋" if "袋" in question_text else ""
+        if first_after > second_after:
+            final_answer = f"甲比乙多{difference}{unit}"
+            compare_expression = f"{first_after} - {second_after}"
+        elif first_after < second_after:
+            final_answer = f"甲比乙少{difference}{unit}"
+            compare_expression = f"{second_after} - {first_after}"
+        else:
+            final_answer = "甲和乙一样多"
+            compare_expression = f"{first_after} - {second_after}"
+        return self._analysis_from_parse(
+            LLMProblemParse(
+                subject=subject,
+                grade=grade,
+                problem_type="transfer_comparison",
+                skill_ids=["math_comparison_transfer"],
+                misconception_ids=["math_transfer_direction_wrong"],
+                knowledge_points=["转移后比较多少"],
+                conditions=[
+                    {"id": "first_initial", "text": f"甲原来有{first}{unit}", "value": first, "unit": unit},
+                    {"id": "second_initial", "text": f"乙原来有{second}{unit}", "value": second, "unit": unit},
+                    {"id": "transferred", "text": f"甲给乙{transferred}{unit}", "value": transferred, "unit": unit},
+                ],
+                target="先算转移后的数量，再比较甲和乙相差多少",
+                solution_steps=[
+                    {
+                        "id": "step_first_after_transfer",
+                        "goal": "先算甲转移后还剩多少",
+                        "expression": f"{first} - {transferred}",
+                        "result": str(first_after),
+                    },
+                    {
+                        "id": "step_second_after_transfer",
+                        "goal": "再算乙收到后有多少",
+                        "expression": f"{second} + {transferred}",
+                        "result": str(second_after),
+                    },
+                    {
+                        "id": "step_compare_after_transfer",
+                        "goal": "最后比较转移后的两个数量",
+                        "expression": compare_expression,
+                        "result": str(difference),
+                    },
+                ],
+                final_answer=final_answer,
+                common_misconceptions=[
+                    {
+                        "tag": "math_transfer_direction_wrong",
+                        "description": "只看原来的多少，或把甲给乙后的增减方向弄反。",
+                    },
+                    {
+                        "tag": "math_compare_before_transfer",
+                        "description": "没有先算转移后的数量，直接比较原来的数量。",
+                    },
+                ],
+                confidence=0.9,
                 source=self.source,
             ),
             question_text=question_text,
@@ -632,6 +770,14 @@ class MathProblemStructuringGateway:
         self.attempt_evaluator = attempt_evaluator
         self.fast_path_registry = fast_path_registry or MathFastPathRegistry()
 
+    @property
+    def provider(self) -> str:
+        return str(getattr(self.structurer, "provider", "") or "math_gateway")
+
+    @property
+    def model(self) -> str:
+        return str(getattr(self.structurer, "model", "") or "configured")
+
     def analyze(
         self,
         *,
@@ -686,8 +832,32 @@ class MathProblemStructuringGateway:
 class LLMMathStructurer:
     """LLM-backed structurer that is constrained to return ProblemAnalysis JSON."""
 
-    def __init__(self, *, llm_func: Callable[[str], str] | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        llm_func: Callable[[str], str] | None = None,
+        provider: str = "",
+        model: str = "",
+    ) -> None:
         self.llm_func = llm_func
+        self._provider = provider
+        self._model = model
+
+    @property
+    def provider(self) -> str:
+        if self._provider:
+            return self._provider
+        if self.llm_func is not None:
+            return "custom_llm"
+        return _configured_llm_provider_model()[0]
+
+    @property
+    def model(self) -> str:
+        if self._model:
+            return self._model
+        if self.llm_func is not None:
+            return "configured"
+        return _configured_llm_provider_model()[1]
 
     def analyze(self, *, question_text: str, grade: int, subject: str) -> ProblemAnalysis:
         response = self._complete(_build_structuring_prompt(question_text, grade, subject))
@@ -716,6 +886,16 @@ class LLMMathStructurer:
             ),
             temperature=0,
         )
+
+
+def _configured_llm_provider_model() -> tuple[str, str]:
+    try:
+        from songguo.backend.services.learning.real_model_client import load_real_model_config
+
+        config = load_real_model_config()
+        return config.binding, config.model
+    except Exception:
+        return "llm", "configured"
 
 
 def validate_problem_analysis(analysis: ProblemAnalysis) -> ValidationResult:
@@ -1197,8 +1377,8 @@ def _extract_safe_arithmetic_expression(question_text: str) -> str | None:
     text = text.replace("×", "*").replace("÷", "/").replace("Ｘ", "*")
     text = text.replace("x", "*").replace("X", "*")
     text = re.sub(r"\s+", "", text)
-    text = re.sub(r"(=|＝)[?？]?$", "", text)
     text = text.rstrip("?？")
+    text = re.split(r"[=＝]", text, maxsplit=1)[0].strip()
     if not re.fullmatch(r"[0-9+\-*/().]+", text):
         return None
     if not re.search(r"[+\-*/]", text):

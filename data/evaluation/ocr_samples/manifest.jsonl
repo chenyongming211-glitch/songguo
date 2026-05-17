@@ -1,0 +1,2 @@
+{"sample_id":"fixture_english_tense_001","image_path":"fixtures/english_tense_001.txt","subject":"english","grade":4,"tags":["fixture","english","single_item"],"expected_items":[{"question_text":"Choose the correct tense: He ____ to school yesterday.","child_answer":"go"}]}
+{"sample_id":"fixture_math_division_001","image_path":"fixtures/math_division_001.txt","subject":"math","grade":4,"tags":["fixture","math","single_item"],"expected_items":[{"question_text":"48 ÷ 6 = ?","child_answer":"8"}]}

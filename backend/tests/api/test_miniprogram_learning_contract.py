@@ -39,7 +39,7 @@ def test_miniprogram_has_photo_review_upload_contract() -> None:
     assert "数学 错题引导" not in chat_list_wxml
     assert "英语" not in chat_list_wxml
     assert "语文" not in chat_list_wxml
-    assert "分步陪练" in chat_list_wxml
+    assert "拍照做题" in chat_list_wxml
     assert "动态关键点" not in chat_list_wxml
     assert "scope-row" not in chat_list_wxml
     assert "orbit-number" not in chat_list_wxml
@@ -106,8 +106,6 @@ def test_miniprogram_parent_page_shows_review_plan() -> None:
     assert "function rollupParentSummary(childId, scope)" in api
     assert "/summary-rollup?scope=" in api
     assert "getParentSessionFeedback" in parent_js
-    assert "getParentLearningDeposit" in parent_js
-    assert "learningDeposit" in parent_js
     assert "getParentSummaryDraft" in parent_js
     assert "rollupParentSummary" in parent_js
     assert "sessionFeedback" in parent_js
@@ -129,17 +127,14 @@ def test_miniprogram_parent_page_shows_review_plan() -> None:
     assert "reviewScope" in parent_js
     assert "handleScopeChange" in parent_js
     assert '"yearly"' in parent_js
-    assert "阶段复习计划" in parent_wxml
-    assert "本次学习反馈" in parent_wxml
-    assert "学习资产沉淀" in parent_wxml
-    assert "practice_records" in parent_wxml
-    assert "报告草稿" in parent_wxml
-    assert 'bindtap="handleChildChange"' in parent_wxml
-    assert 'data-scope="{{item.value}}"' in parent_wxml
-    assert 'bindtap="handleScopeChange"' in parent_wxml
-    assert "mastery_score" in parent_wxml
-    assert "risk_level" in parent_wxml
-    assert "knowledge_point_label" in parent_wxml
+    assert "报告周期" in parent_wxml
+    assert "行动建议" in parent_wxml
+    assert "薄弱点" in parent_wxml
+    assert "最近错题" in parent_wxml
+    assert "学习资产沉淀" not in parent_wxml
+    assert "报告草稿" not in parent_wxml
+    assert 'range="{{reviewScopeOptions}}"' in parent_wxml
+    assert 'bindchange="handleScopePickerChange"' in parent_wxml
     assert "安全拦截记录" in parent_wxml
     assert 'bindtap="handleMarkResolved"' in parent_wxml
     assert 'bindtap="handleGenerateDiagram"' in parent_wxml
@@ -157,4 +152,6 @@ def test_miniprogram_settings_page_shows_backend_status_and_wechat_mode() -> Non
     assert "songguo_wechat_session" in settings_js
     assert "微信模式" in settings_wxml
     assert "后端地址" in settings_wxml
-    assert "系统状态" in settings_wxml
+    assert "当前服务" in settings_wxml
+    assert "高级诊断" in settings_wxml
+    assert "测试连接" in settings_wxml

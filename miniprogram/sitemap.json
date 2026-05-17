@@ -1,4 +1,9 @@
 {
   "desc": "Songguo AI mini-program sitemap",
-  "rules": []
+  "rules": [
+    {
+      "action": "allow",
+      "page": "*"
+    }
+  ]
 }

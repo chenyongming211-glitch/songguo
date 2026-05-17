@@ -144,16 +144,30 @@ function createLearningSession(payload) {
 }
 
 function createLearningSubmission(payload) {
+  const data = {
+    child_id: payload.childId || getSessionChildId(),
+    subject: payload.subject || "auto",
+    grade: Number(payload.grade || 3),
+    source_type: payload.sourceType || "text",
+    raw_text: payload.rawText || "",
+  };
+  if (payload.imageRefs && payload.imageRefs.length) {
+    data.image_refs = payload.imageRefs;
+  }
+  if (payload.draftItems && payload.draftItems.length) {
+    data.draft_items = payload.draftItems.map((item) => ({
+      item_index: Number(item.item_index || 0),
+      bbox: item.bbox || null,
+      ocr_action: item.ocr_action || "",
+      ocr_source: item.ocr_source || "",
+      display_status: item.display_status || "",
+      quality_warnings: item.quality_warnings || [],
+    }));
+  }
   return request({
     path: "/api/v1/learning/submissions",
     method: "POST",
-    data: {
-      child_id: payload.childId || getSessionChildId(),
-      subject: payload.subject || "math",
-      grade: Number(payload.grade || 3),
-      source_type: payload.sourceType || "text",
-      raw_text: payload.rawText || "",
-    },
+    data,
   });
 }
 
@@ -165,12 +179,26 @@ function getLearningSubmission(submissionId, childId) {
 }
 
 function confirmLearningSubmission(submissionId, payload) {
+  const data = {
+    raw_text: payload && payload.rawText !== undefined ? payload.rawText : undefined,
+  };
+  if (payload && payload.startTutor !== undefined) {
+    data.start_tutor = Boolean(payload.startTutor);
+  }
   return request({
     path: `/api/v1/learning/submissions/${encodeURIComponent(submissionId)}/confirm`,
     method: "POST",
-    data: {
-      raw_text: payload && payload.rawText !== undefined ? payload.rawText : undefined,
-    },
+    data,
+  });
+}
+
+function runLearningSubmissionVisualFallbackStep(submissionId, maxItems) {
+  const limit = Math.max(1, Math.min(Number(maxItems || 1), 3));
+  return request({
+    path: `/api/v1/learning/submissions/${encodeURIComponent(
+      submissionId
+    )}/visual-fallback/step?max_items=${limit}`,
+    method: "POST",
   });
 }
 
@@ -226,7 +254,7 @@ function createPhotoReview(filePath, childId, subject) {
     filePath,
     formData: {
       child_id: childId || getSessionChildId(),
-      subject: subject || "math",
+      subject: subject || "auto",
       grade: 3,
     },
   });
@@ -238,7 +266,7 @@ function recognizeSubmissionPhoto(filePath, childId, subject) {
     filePath,
     formData: {
       child_id: childId || getSessionChildId(),
-      subject: subject || "math",
+      subject: subject || "auto",
       grade: 3,
     },
   });
@@ -250,7 +278,7 @@ function recognizeSubmissionVoice(filePath, childId, subject) {
     filePath,
     formData: {
       child_id: childId || getSessionChildId(),
-      subject: subject || "math",
+      subject: subject || "auto",
       grade: 3,
     },
   });
@@ -454,6 +482,7 @@ module.exports = {
   loginWithWechat,
   recognizeSubmissionPhoto,
   recognizeSubmissionVoice,
+  runLearningSubmissionVisualFallbackStep,
   getParentLearningDeposit,
   getParentLearningMemory,
   getParentReviewPlan,

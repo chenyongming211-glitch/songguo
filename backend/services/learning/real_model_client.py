@@ -9,6 +9,13 @@ from typing import Any
 import requests
 
 
+DEFAULT_DEEPSEEK_MODEL = "deepseek-v4-flash"
+DEFAULT_ALIYUN_VISION_MODEL = "qwen3.6-flash"
+DEFAULT_ALIYUN_OPENAI_BASE_URL = "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
+DEFAULT_ALIYUN_EDU_OCR_ENDPOINT = "https://ocr-api.cn-hangzhou.aliyuncs.com"
+DEFAULT_ALIYUN_EDU_OCR_REGION = "cn-hangzhou"
+
+
 @dataclass(frozen=True)
 class RealModelConfig:
     binding: str
@@ -20,6 +27,32 @@ class RealModelConfig:
     retry_backoff_seconds: float = 0.4
 
     def model_copy(self, update: dict[str, Any] | None = None) -> "RealModelConfig":
+        return replace(self, **(update or {}))
+
+
+@dataclass(frozen=True)
+class AliyunEduOCRConfig:
+    access_key_id: str = ""
+    access_key_secret: str = ""
+    api_key: str = ""
+    endpoint: str = DEFAULT_ALIYUN_EDU_OCR_ENDPOINT
+    region: str = DEFAULT_ALIYUN_EDU_OCR_REGION
+    scene: str = "auto"
+    cut_type: str = "question"
+    image_type: str = "photo"
+    subject: str = "default"
+    output_oricoord: bool = True
+    need_rotate: bool = True
+    timeout_seconds: float = 12.0
+    retry_attempts: int = 2
+    retry_backoff_seconds: float = 0.4
+    fallback_provider: str = "none"
+    hybrid_text_fallback: bool = False
+    hybrid_text_fallback_min_answer_rate: float = 0.6
+    router_mode: str = "auto"
+    max_secondary_actions: int = 1
+
+    def model_copy(self, update: dict[str, Any] | None = None) -> "AliyunEduOCRConfig":
         return replace(self, **(update or {}))
 
 
@@ -57,21 +90,25 @@ class OpenAICompatibleModelClient:
             )
 
         async def _call_vision(*, prompt: str, image_data: str) -> str:
+            json_payload: dict[str, Any] = {
+                "model": self.config.model,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt},
+                            {"type": "image_url", "image_url": {"url": image_data}},
+                        ],
+                    }
+                ],
+                "temperature": 0,
+            }
+            max_tokens = _int_env("SONGGUO_VISION_MAX_TOKENS", 900, minimum=128)
+            if max_tokens:
+                json_payload["max_tokens"] = max_tokens
             payload = request_chat_completion(
                 self.config,
-                json_payload={
-                    "model": self.config.model,
-                    "messages": [
-                        {
-                            "role": "user",
-                            "content": [
-                                {"type": "text", "text": prompt},
-                                {"type": "image_url", "image_url": {"url": image_data}},
-                            ],
-                        }
-                    ],
-                    "temperature": 0,
-                },
+                json_payload=json_payload,
             )
             return str(payload["choices"][0]["message"]["content"])
 
@@ -86,7 +123,7 @@ def load_real_model_config() -> RealModelConfig:
     binding = _env("LLM_BINDING") or "deepseek"
     return RealModelConfig(
         binding=binding,
-        model=_env("LLM_MODEL") or _env("DEEPSEEK_MODEL") or "deepseek-chat",
+        model=_env("LLM_MODEL") or _env("DEEPSEEK_MODEL") or DEFAULT_DEEPSEEK_MODEL,
         api_key=_env("LLM_API_KEY") or _env("DEEPSEEK_API_KEY"),
         base_url=_env("LLM_HOST") or _default_base_url(binding),
         timeout_seconds=_float_env("SONGGUO_REAL_MODEL_TIMEOUT_SECONDS", 8.0, minimum=0.1),
@@ -95,6 +132,86 @@ def load_real_model_config() -> RealModelConfig:
             "SONGGUO_REAL_MODEL_RETRY_BACKOFF_SECONDS",
             0.4,
             minimum=0.0,
+        ),
+    )
+
+
+def load_vision_model_config(*, model: str | None = None) -> RealModelConfig:
+    binding = _env("SONGGUO_VISION_BINDING") or _env("VISION_BINDING") or _env("LLM_BINDING") or "aliyun"
+    resolved_model = (
+        model
+        or _env("SONGGUO_VISION_MODEL")
+        or _env("VISION_MODEL")
+        or DEFAULT_ALIYUN_VISION_MODEL
+    )
+    api_key = (
+        _env("SONGGUO_VISION_API_KEY")
+        or _env("VISION_API_KEY")
+        or _env("ALIYUN_API_KEY")
+    )
+    if not api_key and (binding or "").lower() not in {"aliyun", "dashscope", "qwen", "maas"}:
+        api_key = _env("LLM_API_KEY") or _env("DEEPSEEK_API_KEY")
+    return RealModelConfig(
+        binding=binding,
+        model=resolved_model,
+        api_key=api_key,
+        base_url=(
+            _env("SONGGUO_VISION_HOST")
+            or _env("VISION_HOST")
+            or _env("ALIYUN_OPENAI_BASE_URL")
+            or _default_base_url(binding)
+        ),
+        timeout_seconds=_float_env("SONGGUO_VISION_TIMEOUT_SECONDS", 20.0, minimum=0.1),
+        retry_attempts=_int_env("SONGGUO_VISION_RETRY_ATTEMPTS", 2, minimum=1),
+        retry_backoff_seconds=_float_env(
+            "SONGGUO_VISION_RETRY_BACKOFF_SECONDS",
+            0.4,
+            minimum=0.0,
+        ),
+    )
+
+
+def load_aliyun_edu_ocr_config() -> AliyunEduOCRConfig:
+    return AliyunEduOCRConfig(
+        access_key_id=(
+            _env("SONGGUO_ALIYUN_EDU_OCR_ACCESS_KEY_ID")
+            or _env("ALIYUN_ACCESS_KEY_ID")
+        ),
+        access_key_secret=(
+            _env("SONGGUO_ALIYUN_EDU_OCR_ACCESS_KEY_SECRET")
+            or _env("ALIYUN_ACCESS_KEY_SECRET")
+        ),
+        api_key=_env("SONGGUO_ALIYUN_EDU_OCR_API_KEY") or _env("ALIYUN_EDU_OCR_API_KEY"),
+        endpoint=_env("SONGGUO_ALIYUN_EDU_OCR_ENDPOINT") or DEFAULT_ALIYUN_EDU_OCR_ENDPOINT,
+        region=_env("SONGGUO_ALIYUN_EDU_OCR_REGION") or DEFAULT_ALIYUN_EDU_OCR_REGION,
+        scene=_env("SONGGUO_ALIYUN_EDU_OCR_SCENE") or "auto",
+        cut_type=_env("SONGGUO_ALIYUN_EDU_OCR_CUT_TYPE") or "question",
+        image_type=_env("SONGGUO_ALIYUN_EDU_OCR_IMAGE_TYPE") or "photo",
+        subject=_env("SONGGUO_ALIYUN_EDU_OCR_SUBJECT") or "default",
+        output_oricoord=_bool_env("SONGGUO_ALIYUN_EDU_OCR_OUTPUT_ORICOORD", True),
+        need_rotate=_bool_env("SONGGUO_ALIYUN_EDU_OCR_NEED_ROTATE", True),
+        timeout_seconds=_float_env("SONGGUO_ALIYUN_EDU_OCR_TIMEOUT_SECONDS", 12.0, minimum=0.1),
+        retry_attempts=_int_env("SONGGUO_ALIYUN_EDU_OCR_RETRY_ATTEMPTS", 2, minimum=1),
+        retry_backoff_seconds=_float_env(
+            "SONGGUO_ALIYUN_EDU_OCR_RETRY_BACKOFF_SECONDS",
+            0.4,
+            minimum=0.0,
+        ),
+        fallback_provider=(
+            _env("SONGGUO_ALIYUN_EDU_OCR_FALLBACK_PROVIDER")
+            or "none"
+        ),
+        hybrid_text_fallback=_bool_env("SONGGUO_ALIYUN_EDU_OCR_HYBRID_TEXT_FALLBACK", False),
+        hybrid_text_fallback_min_answer_rate=_float_env(
+            "SONGGUO_ALIYUN_EDU_OCR_HYBRID_TEXT_FALLBACK_MIN_ANSWER_RATE",
+            0.6,
+            minimum=0.0,
+        ),
+        router_mode=_env("SONGGUO_ALIYUN_EDU_OCR_ROUTER_MODE") or "auto",
+        max_secondary_actions=_int_env(
+            "SONGGUO_ALIYUN_EDU_OCR_MAX_SECONDARY_ACTIONS",
+            1,
+            minimum=0,
         ),
     )
 
@@ -147,11 +264,18 @@ def supports_vision(binding: str, model: str) -> bool:
     normalized_model = (model or "").lower()
     if normalized_binding == "deepseek":
         return False
+    if normalized_binding in {"aliyun", "dashscope", "qwen", "maas"}:
+        return normalized_model in {
+            "qwen3.6-flash",
+            "qwen3.6-plus",
+            "kimi-k2.5",
+            "kimi-k2.6",
+        }
     if normalized_binding == "ollama" and any(
         token in normalized_model for token in ("llava", "bakllava", "moondream", "minicpm-v")
     ):
         return True
-    return any(token in normalized_model for token in ("vision", "vl", "gpt-4o"))
+    return any(token in normalized_model for token in ("vision", "vl", "gpt-4o", "qwen-vl"))
 
 
 def songguo_data_root() -> Path:
@@ -159,8 +283,11 @@ def songguo_data_root() -> Path:
 
 
 def _default_base_url(binding: str) -> str:
-    if (binding or "").lower() == "deepseek":
+    normalized = (binding or "").lower()
+    if normalized == "deepseek":
         return "https://api.deepseek.com"
+    if normalized in {"aliyun", "dashscope", "qwen", "maas"}:
+        return _env("ALIYUN_OPENAI_BASE_URL") or DEFAULT_ALIYUN_OPENAI_BASE_URL
     return _env("OPENAI_BASE_URL") or "https://api.openai.com/v1"
 
 
@@ -200,6 +327,13 @@ def _int_env(key: str, default: int, *, minimum: int) -> int:
         return max(minimum, int(raw))
     except ValueError:
         return default
+
+
+def _bool_env(key: str, default: bool) -> bool:
+    raw = _env(key).strip().lower()
+    if not raw:
+        return default
+    return raw not in {"0", "false", "no", "off"}
 
 
 def _is_retryable_status(status_code: Any) -> bool:

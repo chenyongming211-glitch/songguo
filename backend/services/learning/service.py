@@ -16,11 +16,15 @@ from songguo.backend.services.learning.ai_engine import (
     OllamaProvider,
     ProviderChain,
 )
+from songguo.backend.services.learning.basic_subject_rubric import (
+    BasicSubjectRubricEvaluator,
+)
 from songguo.backend.services.learning.deeptutor_adapter import DeepTutorLearningAdapter
 from songguo.backend.services.learning.deeptutor_provider import OrchestratorDraftProvider
 from songguo.backend.services.learning.context_pack import build_student_context_pack
 from songguo.backend.services.learning.deposit import save_learning_deposit_from_llm_output
 from songguo.backend.services.learning.input_safety import check_learning_input
+from songguo.backend.services.learning.intent_router import IntentRouterAgent
 from songguo.backend.services.learning.leakage_checker import (
     LeakageAction,
     check_answer_leakage,
@@ -60,8 +64,15 @@ from songguo.backend.services.learning.submission_models import (
     LearningSubmissionSnapshot,
     SourceType,
 )
+from songguo.backend.services.learning.submission_visual_fallback import (
+    mark_visual_fallback_pending_for_submission,
+    run_visual_fallback_step_async,
+)
 from songguo.backend.services.learning.tutor_graph.math_mistake_graph import (
     MathMistakeTutorGraph,
+)
+from songguo.backend.services.learning.tutor_graph.basic_subject_graph import (
+    BasicSubjectTutorGraph,
 )
 
 
@@ -106,6 +117,11 @@ class LearningService:
         ai_provider: AIEngineProvider | None = None,
         session_runner: LLMSessionRunner | None = None,
         tutor_graph: MathMistakeTutorGraph | None = None,
+        basic_tutor_graph: BasicSubjectTutorGraph | None = None,
+        basic_rubric_evaluator: BasicSubjectRubricEvaluator | None = None,
+        visual_fallback_ocr_provider=None,
+        intent_router=None,
+        router_guard=None,
         agent_runtime: str | None = None,
     ) -> None:
         self.store = store
@@ -127,11 +143,21 @@ class LearningService:
                 session_runner=session_runner,
                 math_gateway=self.math_gateway,
             )
+        self.basic_tutor_graph = basic_tutor_graph or BasicSubjectTutorGraph(
+            store=store,
+            adapter=self.adapter,
+        )
+        self.basic_rubric_evaluator = basic_rubric_evaluator or BasicSubjectRubricEvaluator()
+        self.visual_fallback_ocr_provider = visual_fallback_ocr_provider
         self.submission_graph = LearningSubmissionGraph(
             store=store,
             session_runner=session_runner,
             math_gateway=self.math_gateway,
             tutor_graph=self.tutor_graph,
+            basic_tutor_graph=self.basic_tutor_graph,
+            basic_rubric_evaluator=self.basic_rubric_evaluator,
+            intent_router=intent_router,
+            router_guard=router_guard,
         )
         self.runtime_kernel = (
             RuntimeKernel(store=store, provider=ai_provider) if ai_provider is not None else None
@@ -145,6 +171,9 @@ class LearningService:
         grade: int,
         source_type: SourceType | str,
         raw_text: str,
+        image_refs: list[str] | None = None,
+        item_bboxes: dict[int, dict[str, int]] | None = None,
+        item_metadata: dict[int, dict[str, object]] | None = None,
     ) -> LearningSubmissionGraphResult:
         return self.submission_graph.start(
             child_id=child_id,
@@ -152,13 +181,41 @@ class LearningService:
             grade=grade,
             source_type=str(source_type),
             raw_text=raw_text,
+            image_refs=image_refs,
+            item_bboxes=item_bboxes,
+            item_metadata=item_metadata,
         )
 
     def get_submission_snapshot(self, submission_id: str) -> LearningSubmissionSnapshot:
         return self.store.get_submission_snapshot(submission_id)
 
-    def confirm_submission(self, submission_id: str) -> LearningSubmissionGraphResult:
-        return self.submission_graph.confirm(submission_id)
+    def confirm_submission(
+        self,
+        submission_id: str,
+        *,
+        start_tutor: bool = True,
+    ) -> LearningSubmissionGraphResult:
+        result = self.submission_graph.confirm(submission_id, start_tutor=start_tutor)
+        mark_visual_fallback_pending_for_submission(
+            store=self.store,
+            submission_id=submission_id,
+        )
+        return result
+
+    async def run_submission_visual_fallback_step(
+        self,
+        submission_id: str,
+        *,
+        max_items: int = 1,
+    ) -> LearningSubmissionSnapshot:
+        return await run_visual_fallback_step_async(
+            store=self.store,
+            submission_id=submission_id,
+            ocr_provider=self.visual_fallback_ocr_provider,
+            math_gateway=self.math_gateway,
+            basic_rubric_evaluator=self.basic_rubric_evaluator,
+            max_items=max_items,
+        )
 
     def start_next_tutor_item(self, submission_id: str) -> LearningSubmissionGraphResult:
         return self.submission_graph.start_next_tutor_item(submission_id)
@@ -332,6 +389,13 @@ class LearningService:
 
         if session.runner_mode == "llm" and self.session_runner is not None:
             return self._submit_llm_attempt(session_id=session_id, child_answer=child_answer)
+
+        if session.runner_mode == "basic_subject" and self.basic_tutor_graph is not None:
+            result = self.basic_tutor_graph.submit_attempt(
+                session_id=session_id,
+                child_answer=child_answer,
+            )
+            return SubmitAttemptResult.model_validate(result.model_dump(mode="json"))
 
         if session.problem_analysis:
             if self.runtime_kernel is not None:
@@ -1385,6 +1449,8 @@ def build_default_learning_service() -> LearningService:
     math_gateway = _build_math_gateway_from_env()
     ai_provider = _build_ai_provider_from_env()
     session_runner = _build_session_runner_from_env()
+    intent_router = _build_intent_router_from_env()
+    basic_rubric_evaluator = _build_basic_subject_rubric_evaluator_from_env()
     agent_runtime = (
         os.getenv("SONGGUO_AGENT_RUNTIME")
         or _read_local_dotenv_value("SONGGUO_AGENT_RUNTIME")
@@ -1401,6 +1467,8 @@ def build_default_learning_service() -> LearningService:
             math_gateway=math_gateway,
             ai_provider=ai_provider,
             session_runner=session_runner,
+            intent_router=intent_router,
+            basic_rubric_evaluator=basic_rubric_evaluator,
             agent_runtime=agent_runtime,
         )
     return LearningService(
@@ -1408,8 +1476,39 @@ def build_default_learning_service() -> LearningService:
         math_gateway=math_gateway,
         ai_provider=ai_provider,
         session_runner=session_runner,
+        intent_router=intent_router,
+        basic_rubric_evaluator=basic_rubric_evaluator,
         agent_runtime=agent_runtime,
     )
+
+
+def _build_intent_router_from_env() -> IntentRouterAgent | None:
+    provider = (
+        os.getenv("SONGGUO_INTENT_ROUTER_PROVIDER")
+        or _read_local_dotenv_value("SONGGUO_INTENT_ROUTER_PROVIDER")
+        or os.getenv("SONGGUO_INTENT_ROUTER")
+        or _read_local_dotenv_value("SONGGUO_INTENT_ROUTER")
+    ).strip().lower()
+    if provider not in {"llm", "model", "agent"}:
+        return None
+    from songguo.backend.services.learning.langchain_model_client import LangChainLLMClient
+
+    return IntentRouterAgent(llm_client=LangChainLLMClient(), fast_path_enabled=True)
+
+
+def _build_basic_subject_rubric_evaluator_from_env() -> BasicSubjectRubricEvaluator | None:
+    provider = (
+        os.getenv("SONGGUO_BASIC_RUBRIC_PROVIDER")
+        or _read_local_dotenv_value("SONGGUO_BASIC_RUBRIC_PROVIDER")
+        or os.getenv("SONGGUO_RUBRIC_PROVIDER")
+        or _read_local_dotenv_value("SONGGUO_RUBRIC_PROVIDER")
+        or ""
+    ).strip().lower()
+    if provider not in {"llm", "model", "agent"}:
+        return None
+    from songguo.backend.services.learning.langchain_model_client import LangChainLLMClient
+
+    return BasicSubjectRubricEvaluator(llm_client=LangChainLLMClient(), fast_path_enabled=True)
 
 
 def _build_learning_store_from_env():
@@ -1438,12 +1537,12 @@ def _build_session_runner_from_env() -> LLMSessionRunner | None:
     )
     model = (
         os.getenv("SONGGUO_LLM_MODEL")
-        or _read_local_dotenv_value("SONGGUO_LLM_MODEL")
         or os.getenv("DEEPTUTOR_LLM_MODEL")
-        or _read_local_dotenv_value("DEEPTUTOR_LLM_MODEL")
         or os.getenv("DEEPSEEK_MODEL")
-        or _read_local_dotenv_value("DEEPSEEK_MODEL")
         or os.getenv("LLM_MODEL")
+        or _read_local_dotenv_value("SONGGUO_LLM_MODEL")
+        or _read_local_dotenv_value("DEEPTUTOR_LLM_MODEL")
+        or _read_local_dotenv_value("DEEPSEEK_MODEL")
         or _read_local_dotenv_value("LLM_MODEL")
         or "configured"
     )
@@ -1504,13 +1603,19 @@ def _read_local_dotenv_value(key: str) -> str:
     return ""
 
 
-_GLOBAL_SERVICE = build_default_learning_service()
-_GLOBAL_STORE = _GLOBAL_SERVICE.store
+_GLOBAL_SERVICE: LearningService | None = None
+_GLOBAL_STORE: InMemoryLearningStore | None = None
 
 
 def get_global_learning_store() -> InMemoryLearningStore:
+    global _GLOBAL_STORE
+    if _GLOBAL_STORE is None:
+        _GLOBAL_STORE = get_global_learning_service().store
     return _GLOBAL_STORE
 
 
 def get_global_learning_service() -> LearningService:
+    global _GLOBAL_SERVICE
+    if _GLOBAL_SERVICE is None:
+        _GLOBAL_SERVICE = build_default_learning_service()
     return _GLOBAL_SERVICE

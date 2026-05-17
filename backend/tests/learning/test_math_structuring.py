@@ -239,6 +239,28 @@ def test_problem_analysis_builder_replaces_prompt_when_expression_contains_final
     assert "1/2" not in analysis.key_points[1].child_prompt
 
 
+def test_fast_path_accepts_simple_remainder_expression_from_ocr() -> None:
+    gateway = MathProblemStructuringGateway()
+
+    analysis = gateway.analyze(question_text="36 ÷5=?", grade=4, subject="math")
+    evaluation = gateway.evaluate_attempt(analysis, child_answer="7余1")
+
+    assert analysis.problem_type == "division_with_remainder"
+    assert analysis.final_answer == "7余1"
+    assert evaluation.correct is True
+
+
+def test_fast_path_repairs_duplicate_equals_from_ocr() -> None:
+    gateway = MathProblemStructuringGateway()
+
+    analysis = gateway.analyze(question_text="25 × 4= =?", grade=4, subject="math")
+    evaluation = gateway.evaluate_attempt(analysis, child_answer="100")
+
+    assert analysis.problem_type == "two_digit_times_one_digit"
+    assert analysis.final_answer == "100"
+    assert evaluation.correct is True
+
+
 def test_problem_analysis_builder_replaces_goal_when_goal_contains_final_answer() -> None:
     parse = LLMProblemParse(
         subject="math",
@@ -594,6 +616,24 @@ def test_fast_path_registry_handles_unit_conversion_subtraction_problem() -> Non
     assert analysis.solution_steps[0].expression == "2 × 100 + 35"
     assert analysis.solution_steps[1].expression == "235 - 80"
     assert "155厘米" not in analysis.first_key_point.child_prompt
+
+
+def test_fast_path_registry_handles_transfer_comparison_problem() -> None:
+    registry = MathFastPathRegistry()
+
+    analysis = registry.analyze(
+        question_text="甲仓库有560袋米，乙仓库有420袋，甲运给乙80袋后，甲比乙少还是多多少袋？",
+        grade=4,
+        subject="math",
+    )
+
+    assert analysis is not None
+    assert analysis.problem_type == "transfer_comparison"
+    assert analysis.final_answer == "甲比乙少20袋"
+    assert analysis.solution_steps[0].expression == "560 - 80"
+    assert analysis.solution_steps[1].expression == "420 + 80"
+    assert analysis.solution_steps[2].expression == "500 - 480"
+    assert "甲比乙少20袋" not in analysis.first_key_point.child_prompt
 
 
 def test_fast_path_registry_keeps_plain_unit_conversion_problem() -> None:

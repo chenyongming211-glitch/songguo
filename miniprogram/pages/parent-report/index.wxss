@@ -20,7 +20,7 @@
 .ribbon-value {
   display: block;
   color: #0f766e;
-  font-size: 27rpx;
+  font-size: 30rpx;
   font-weight: 900;
 }
 
@@ -28,7 +28,7 @@
   display: block;
   margin-top: 8rpx;
   color: #786b59;
-  font-size: 20rpx;
+  font-size: 26rpx;
   font-weight: 700;
 }
 
@@ -37,6 +37,53 @@
   grid-template-columns: repeat(3, 1fr);
   gap: 14rpx;
   margin-top: 20rpx;
+}
+
+.conclusion-card {
+  border-color: rgba(15, 118, 110, 0.18);
+}
+
+.insight-row {
+  margin-top: 22rpx;
+  padding: 22rpx;
+  border-radius: 24rpx;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1rpx solid rgba(15, 118, 110, 0.1);
+}
+
+.insight-label {
+  display: inline-flex;
+  align-items: center;
+  margin-bottom: 10rpx;
+  padding: 7rpx 14rpx;
+  border-radius: 999rpx;
+  background: rgba(254, 243, 199, 0.92);
+  color: #92400e;
+  font-size: 24rpx;
+  font-weight: 900;
+}
+
+.action-card {
+  border-color: rgba(217, 119, 6, 0.14);
+}
+
+.weakness-card {
+  border-color: rgba(15, 118, 110, 0.14);
+}
+
+.compact-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12rpx;
+  margin-top: 22rpx;
+}
+
+.compact-metric {
+  padding: 18rpx 10rpx;
+  border-radius: 22rpx;
+  text-align: center;
+  background: rgba(240, 253, 250, 0.82);
+  border: 1rpx solid rgba(15, 118, 110, 0.12);
 }
 
 .scope-row {
@@ -49,17 +96,51 @@
 .scope-button {
   margin: 0 !important;
   padding: 0 22rpx !important;
-  height: 58rpx !important;
-  line-height: 58rpx !important;
+  min-height: 76rpx !important;
+  line-height: 76rpx !important;
   border-radius: 999rpx !important;
   background: rgba(255, 255, 255, 0.78) !important;
   color: #475569 !important;
-  font-size: 22rpx !important;
+  font-size: 28rpx !important;
 }
 
 .scope-button-active {
   background: #0f766e !important;
   color: #ffffff !important;
+}
+
+.period-field {
+  margin-top: 18rpx;
+  padding: 22rpx 24rpx;
+  border-radius: 26rpx;
+  background: rgba(255, 255, 255, 0.76);
+  border: 1rpx solid rgba(15, 118, 110, 0.12);
+}
+
+.period-label {
+  display: block;
+  color: #6b675d;
+  font-size: 26rpx;
+  font-weight: 800;
+}
+
+.period-picker {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 82rpx;
+  margin-top: 10rpx;
+  padding: 0 24rpx;
+  border-radius: 22rpx;
+  background: #0f766e;
+  color: #ffffff;
+  font-size: 32rpx;
+  font-weight: 900;
+}
+
+.period-caret {
+  font-size: 34rpx;
+  font-weight: 900;
 }
 
 .metric-card {
@@ -74,7 +155,7 @@
   border-radius: 999rpx;
   background: rgba(254, 243, 199, 0.9);
   color: #92400e;
-  font-size: 18rpx;
+  font-size: 24rpx;
   font-weight: 900;
 }
 
@@ -90,7 +171,7 @@
   display: block;
   margin-top: 8rpx;
   color: #6b675d;
-  font-size: 22rpx;
+  font-size: 26rpx;
 }
 
 .section-header-line {
@@ -104,8 +185,8 @@
   display: block;
   margin-top: 12rpx;
   color: #334155;
-  font-size: 24rpx;
-  line-height: 1.55;
+  font-size: 28rpx;
+  line-height: 1.58;
 }
 
 .wrong-card {
@@ -143,19 +224,19 @@
 
 .resolve-button {
   margin: 16rpx 0 0 0 !important;
-  height: 60rpx !important;
-  line-height: 60rpx !important;
+  min-height: 76rpx !important;
+  line-height: 76rpx !important;
   border-radius: 999rpx !important;
   background: linear-gradient(135deg, #0f766e 0%, #134e4a 100%) !important;
   color: #ffffff !important;
-  font-size: 22rpx !important;
+  font-size: 28rpx !important;
   font-weight: 800 !important;
 }
 
 .wrong-title {
   display: block;
   color: #1c1917;
-  font-size: 28rpx;
+  font-size: 32rpx;
   font-weight: 900;
   line-height: 1.45;
 }
@@ -164,6 +245,6 @@
   display: block;
   margin-top: 10rpx;
   color: #6b675d;
-  font-size: 22rpx;
-  line-height: 1.5;
+  font-size: 28rpx;
+  line-height: 1.55;
 }

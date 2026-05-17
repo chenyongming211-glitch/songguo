@@ -66,6 +66,15 @@ class LearningSubmission(BaseModel):
     child_id: str
     family_id: str = ""
     subject: str = "math"
+    detected_subject: str = ""
+    detected_task_type: str = ""
+    detected_intent: str = ""
+    subject_confidence: float = 0.0
+    route_to: str = ""
+    routing_evidence: list[str] = Field(default_factory=list)
+    guard_reason: str = ""
+    router_version: str = ""
+    needs_clarification: bool = False
     grade: int = 3
     source_type: SourceType = SourceType.TEXT
     status: LearningSubmissionStatus = LearningSubmissionStatus.INTAKE_PENDING
@@ -91,6 +100,9 @@ class LearningItem(BaseModel):
     item_index: int
     question_text: str
     child_answer: str | None = None
+    detected_subject: str = ""
+    detected_task_type: str = ""
+    evaluation_mode: str = ""
     correct_answer: str | None = None
     judge_result: JudgeResult = JudgeResult.UNKNOWN
     question_type_id: str = ""
@@ -141,6 +153,7 @@ class LearningItemDraft(BaseModel):
     item_index: int
     question_text: str
     child_answer: str | None = None
+    work_steps: str = ""
     confidence: float = 0.0
 
 

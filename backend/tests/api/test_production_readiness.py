@@ -1,6 +1,16 @@
 from __future__ import annotations
 
+import pytest
+
 from songguo.backend.services.production_readiness import check_production_readiness
+
+
+@pytest.fixture(autouse=True)
+def _ignore_local_dotenv(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "songguo.backend.services.production_readiness._read_local_dotenv_value",
+        lambda key: "",
+    )
 
 
 def test_production_readiness_reports_missing_required_env(monkeypatch) -> None:
@@ -78,6 +88,7 @@ def test_production_readiness_accepts_known_vision_model(monkeypatch) -> None:
     monkeypatch.setenv("SONGGUO_SESSION_SECRET", "session-secret")
     monkeypatch.setenv("SONGGUO_PHOTO_OCR_PROVIDER", "vision")
     monkeypatch.setenv("SONGGUO_VISION_MODEL", "llava:latest")
+    monkeypatch.setenv("SONGGUO_VISION_API_KEY", "vision-key")
     monkeypatch.setenv("LLM_BINDING", "ollama")
 
     result = check_production_readiness()
@@ -85,6 +96,54 @@ def test_production_readiness_accepts_known_vision_model(monkeypatch) -> None:
     assert result.ready is True
     assert result.missing == []
     assert not any("vision support" in warning for warning in result.warnings)
+
+
+def test_production_readiness_accepts_aliyun_qwen_vision_model(monkeypatch) -> None:
+    monkeypatch.setenv("PUBLIC_BASE_URL", "https://example.com")
+    monkeypatch.setenv("WECHAT_APPID", "appid")
+    monkeypatch.setenv("WECHAT_SECRET", "secret")
+    monkeypatch.setenv("SONGGUO_SESSION_SECRET", "session-secret")
+    monkeypatch.setenv("SONGGUO_PHOTO_OCR_PROVIDER", "vision")
+    monkeypatch.setenv("SONGGUO_VISION_BINDING", "aliyun")
+    monkeypatch.setenv("SONGGUO_VISION_MODEL", "qwen3.6-flash")
+    monkeypatch.setenv("SONGGUO_VISION_API_KEY", "vision-key")
+
+    result = check_production_readiness()
+
+    assert result.ready is True
+    assert result.missing == []
+    assert not any("vision support" in warning for warning in result.warnings)
+
+
+def test_production_readiness_requires_aliyun_edu_ocr_credentials(monkeypatch) -> None:
+    monkeypatch.setenv("PUBLIC_BASE_URL", "https://example.com")
+    monkeypatch.setenv("WECHAT_APPID", "appid")
+    monkeypatch.setenv("WECHAT_SECRET", "secret")
+    monkeypatch.setenv("SONGGUO_SESSION_SECRET", "session-secret")
+    monkeypatch.setenv("SONGGUO_PHOTO_OCR_PROVIDER", "aliyun_edu")
+    monkeypatch.delenv("SONGGUO_ALIYUN_EDU_OCR_ACCESS_KEY_ID", raising=False)
+    monkeypatch.delenv("SONGGUO_ALIYUN_EDU_OCR_ACCESS_KEY_SECRET", raising=False)
+
+    result = check_production_readiness()
+
+    assert result.ready is False
+    assert "SONGGUO_ALIYUN_EDU_OCR_ACCESS_KEY_ID" in result.missing
+    assert "SONGGUO_ALIYUN_EDU_OCR_ACCESS_KEY_SECRET" in result.missing
+
+
+def test_production_readiness_accepts_aliyun_edu_ocr_credentials(monkeypatch) -> None:
+    monkeypatch.setenv("PUBLIC_BASE_URL", "https://example.com")
+    monkeypatch.setenv("WECHAT_APPID", "appid")
+    monkeypatch.setenv("WECHAT_SECRET", "secret")
+    monkeypatch.setenv("SONGGUO_SESSION_SECRET", "session-secret")
+    monkeypatch.setenv("SONGGUO_PHOTO_OCR_PROVIDER", "aliyun_edu")
+    monkeypatch.setenv("SONGGUO_ALIYUN_EDU_OCR_ACCESS_KEY_ID", "ak-id")
+    monkeypatch.setenv("SONGGUO_ALIYUN_EDU_OCR_ACCESS_KEY_SECRET", "ak-secret")
+
+    result = check_production_readiness()
+
+    assert "SONGGUO_ALIYUN_EDU_OCR_ACCESS_KEY_ID" not in result.missing
+    assert "SONGGUO_ALIYUN_EDU_OCR_ACCESS_KEY_SECRET" not in result.missing
 
 
 def test_production_readiness_warns_when_wechat_production_paths_are_disabled(

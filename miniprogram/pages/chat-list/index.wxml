@@ -2,9 +2,9 @@
   <view class="hero-card home-hero card">
     <view class="hero-copy">
       <text class="hero-label">松果AI · 松鼠博士</text>
-      <text class="hero-title">开始做题，松鼠博士先记录再陪练。</text>
+      <text class="hero-title">拍照做题，松鼠博士陪孩子一步步想。</text>
       <text class="hero-subtitle">
-        拍照、语音或输入都走同一个做题入口，正确题和错题都会沉淀到学习档案。
+        拍题、说题或手动输入都可以。系统会先记录题目和孩子答案，再陪练需要讲清楚的地方。
       </text>
     </view>
     <view class="learner-pill-row">
@@ -25,72 +25,50 @@
         </block>
       </scroll-view>
     </view>
-    <view class="hero-badges">
-      <text class="hero-badge">分步陪练</text>
-      <text class="hero-badge">答案受控</text>
-      <text class="hero-badge">错因记录</text>
-    </view>
-    <view class="button-row">
+    <view class="entry-panel">
       <button
-        class="button-primary"
-        data-source-type="text"
-        bindtap="handleStartSubmission"
-      >
-        开始做题
-      </button>
-      <button class="button-secondary" bindtap="handleRefresh" loading="{{loading}}">
-        刷新列表
-      </button>
-    </view>
-    <view class="entry-row">
-      <button
-        class="entry-button"
+        class="button-primary entry-primary"
         data-source-type="photo"
         bindtap="handleStartPhotoSubmission"
         loading="{{recognizingPhoto}}"
       >
-        拍照
+        拍照做题
       </button>
-      <button
-        class="entry-button"
-        data-source-type="voice"
-        bindtap="handleStartVoiceSubmission"
-        loading="{{recognizingVoice}}"
-      >
-        语音
-      </button>
-      <button class="entry-button" data-source-type="text" bindtap="handleStartSubmission">
-        输入
-      </button>
+      <view class="entry-row">
+        <button
+          class="entry-button"
+          data-source-type="voice"
+          bindtap="handleStartVoiceSubmission"
+          loading="{{recognizingVoice}}"
+        >
+          语音说题
+        </button>
+        <button class="entry-button" data-source-type="text" bindtap="handleStartSubmission">
+          手动输入
+        </button>
+      </view>
     </view>
   </view>
 
-  <view class="promise-grid">
-    <view class="promise-card card">
-      <text class="promise-index">01</text>
-      <text class="promise-title">动态引导</text>
-      <text class="promise-text">根据孩子这一步回答继续追问。</text>
-    </view>
-    <view class="promise-card card">
-      <text class="promise-index">02</text>
-      <text class="promise-title">答案受控</text>
-      <text class="promise-text">未解锁前不直接暴露答案。</text>
-    </view>
-    <view class="promise-card card">
-      <text class="promise-index">03</text>
-      <text class="promise-title">薄弱项记忆</text>
-      <text class="promise-text">按错因沉淀复习证据。</text>
+  <view wx:if="{{error}}" class="error-card action-error-card">
+    <text class="error-title">服务暂时连不上</text>
+    <text class="error-text">{{error}}</text>
+    <view class="button-row error-actions">
+      <button class="button-primary" bindtap="handleRetry" loading="{{loading}}">
+        重试
+      </button>
+      <button class="button-secondary" bindtap="handleOpenSettings">
+        去设置
+      </button>
     </view>
   </view>
-
-  <view wx:if="{{error}}" class="error-card">{{error}}</view>
 
   <view wx:if="{{loading}}" class="state-card">正在拉取最近会话...</view>
 
   <view wx:elif="{{sessions.length}}" class="session-list">
     <view class="section-heading">
       <text class="section-title">我的练习记录</text>
-      <text class="section-text">继续上次的错题陪练，或开始新的题目提交。</text>
+      <text class="section-text">继续上次的陪练，或开始新的题目提交。</text>
     </view>
     <view
       wx:for="{{sessions}}"
@@ -127,7 +105,7 @@
   <view wx:else class="empty-card">
     <text class="empty-title">还没有会话</text>
     <text class="empty-text">
-      点击“开始做题”，提交题目和孩子答案，系统会先记录学习资产，再陪练错题。
+      点击“拍照做题”，提交题目和孩子答案，系统会先记录学习资产，再陪练需要讲清楚的地方。
     </text>
   </view>
 </view>

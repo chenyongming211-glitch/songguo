@@ -4,6 +4,7 @@ from langgraph.graph.state import CompiledStateGraph
 
 from songguo.backend.services.learning.llm_session_runner import LLMSessionRunner
 from songguo.backend.services.learning.math_structuring import ProblemAnalysis
+from songguo.backend.services.learning.intent_router import IntentRoutingDecision
 from songguo.backend.services.learning.store import InMemoryLearningStore
 from songguo.backend.services.learning.submission_graph import LearningSubmissionGraph
 from songguo.backend.services.learning.submission_models import (
@@ -53,6 +54,197 @@ def test_learning_submission_graph_create_draft_only_parses_items_before_confirm
     assert store.get_active_tutor_item(result.submission_id) is None
 
 
+def test_learning_submission_graph_persists_ocr_metadata_on_photo_items() -> None:
+    store = InMemoryLearningStore()
+    graph = LearningSubmissionGraph(
+        store=store,
+        session_runner=_fake_runner(),
+        math_gateway=_fixture_gateway(),
+    )
+
+    result = graph.start(
+        child_id="child_001",
+        subject="auto",
+        grade=3,
+        source_type="photo",
+        raw_text="1. 48÷6=?\n孩子答案：8",
+        image_refs=["/tmp/homework.jpg"],
+        item_bboxes={1: {"x": 60, "y": 80, "width": 880, "height": 200}},
+        item_metadata={
+            1: {
+                "ocr_action": "RecognizeEduPaperCut",
+                "ocr_source": "aliyun_edu_paper_cut",
+                "display_status": "pending",
+                "quality_warnings": [],
+            }
+        },
+    )
+
+    item = store.list_submission_items(result.submission_id)[0]
+
+    assert item.data_json["ocr_action"] == "RecognizeEduPaperCut"
+    assert item.data_json["ocr_source"] == "aliyun_edu_paper_cut"
+
+
+def test_learning_submission_graph_auto_subject_writes_agent_route_result() -> None:
+    store = InMemoryLearningStore()
+    graph = LearningSubmissionGraph(
+        store=store,
+        session_runner=_fake_runner(),
+        math_gateway=_fixture_gateway(),
+        intent_router=_fake_intent_router(
+            IntentRoutingDecision(
+                subject="chinese",
+                task_type="reading_comprehension",
+                user_intent="check_answer",
+                confidence=0.88,
+                evidence=["题干要求阅读短文后回答问题"],
+                needs_clarification=False,
+                route_to="chinese_basic_tutor",
+            )
+        ),
+    )
+
+    result = graph.start(
+        child_id="child_001",
+        subject="auto",
+        grade=3,
+        source_type="text",
+        raw_text="阅读短文，回答作者为什么这样做？\n孩子答案：因为他很着急",
+    )
+
+    submission = store.require_submission(result.submission_id)
+    items = store.list_submission_items(result.submission_id)
+
+    assert submission.subject == "chinese"
+    assert submission.detected_subject == "chinese"
+    assert submission.detected_task_type == "reading_comprehension"
+    assert submission.detected_intent == "check_answer"
+    assert submission.subject_confidence == 0.88
+    assert submission.route_to == "chinese_basic_tutor"
+    assert submission.routing_evidence == ["题干要求阅读短文后回答问题"]
+    assert items[0].detected_subject == "chinese"
+
+
+def test_learning_submission_graph_low_confidence_auto_route_needs_clarification() -> None:
+    store = InMemoryLearningStore()
+    graph = LearningSubmissionGraph(
+        store=store,
+        session_runner=_fake_runner(),
+        math_gateway=_fixture_gateway(),
+        intent_router=_fake_intent_router(
+            IntentRoutingDecision(
+                subject="math",
+                task_type="word_problem",
+                user_intent="check_answer",
+                confidence=0.34,
+                evidence=["题面缺少上下文"],
+                needs_clarification=False,
+                route_to="math_mistake_tutor",
+            )
+        ),
+    )
+
+    result = graph.start(
+        child_id="child_001",
+        subject="auto",
+        grade=3,
+        source_type="text",
+        raw_text="这道题怎么做",
+    )
+
+    submission = store.require_submission(result.submission_id)
+
+    assert submission.subject == "unknown"
+    assert submission.route_to == "clarification_tutor"
+    assert submission.needs_clarification is True
+    assert submission.status == LearningSubmissionStatus.NEEDS_MANUAL_CONFIRM
+    assert "low_confidence" in submission.guard_reason
+
+
+def test_learning_submission_graph_confirm_starts_english_basic_tutor() -> None:
+    store = InMemoryLearningStore()
+    graph = LearningSubmissionGraph(
+        store=store,
+        session_runner=_fake_runner(),
+        math_gateway=_fixture_gateway(),
+        intent_router=_fake_intent_router(
+            IntentRoutingDecision(
+                subject="english",
+                task_type="grammar_fix",
+                user_intent="check_answer",
+                confidence=0.91,
+                evidence=["题干是英文时态填空"],
+                needs_clarification=False,
+                route_to="english_basic_tutor",
+            )
+        ),
+    )
+    draft = graph.start(
+        child_id="child_001",
+        subject="auto",
+        grade=4,
+        source_type="text",
+        raw_text="Choose the correct tense: He ____ to school yesterday.\n孩子答案：go",
+    )
+
+    result = graph.confirm(draft.submission_id)
+    snapshot = store.get_submission_snapshot(result.submission_id)
+    active = store.get_active_tutor_item(result.submission_id)
+
+    assert result.status == LearningSubmissionStatus.TUTORING
+    assert snapshot.submission.needs_clarification is False
+    assert snapshot.submission.guard_reason == ""
+    assert snapshot.submission.wrong_count == 1
+    assert len(snapshot.tutor_queue) == 1
+    assert active is not None
+    assert active.status == TutorQueueStatus.ACTIVE
+    assert active.tutor_session_id is not None
+    session = store.require_session(active.tutor_session_id)
+    assert session.subject == "english"
+    assert session.runner_mode == "basic_subject"
+    assert session.knowledge_point == "english_sentence_pattern"
+    assert "英语" in session.current_prompt
+
+
+def test_learning_submission_graph_confirm_records_correct_english_without_tutor() -> None:
+    store = InMemoryLearningStore()
+    graph = LearningSubmissionGraph(
+        store=store,
+        session_runner=_fake_runner(),
+        math_gateway=_fixture_gateway(),
+        intent_router=_fake_intent_router(
+            IntentRoutingDecision(
+                subject="english",
+                task_type="grammar_fix",
+                user_intent="check_answer",
+                confidence=0.91,
+                evidence=["题干是英文时态填空"],
+                needs_clarification=False,
+                route_to="english_basic_tutor",
+            )
+        ),
+    )
+    draft = graph.start(
+        child_id="child_001",
+        subject="auto",
+        grade=4,
+        source_type="text",
+        raw_text="Choose the correct tense: He ____ to school yesterday.\nanswer: went",
+    )
+
+    result = graph.confirm(draft.submission_id)
+    snapshot = store.get_submission_snapshot(result.submission_id)
+
+    assert result.status == LearningSubmissionStatus.COMPLETED
+    assert snapshot.submission.correct_count == 1
+    assert snapshot.submission.wrong_count == 0
+    assert snapshot.tutor_queue == []
+    assert store.get_active_tutor_item(result.submission_id) is None
+    assert snapshot.items[0].data_json["basic_subject_rubric"]["outcome"] == "correct"
+    assert snapshot.mastery_evidence[0].evidence_type == EvidenceType.SUBMISSION_CORRECT
+
+
 def test_learning_submission_graph_confirm_deposits_all_items_and_starts_first_wrong_tutor() -> None:
     store = InMemoryLearningStore()
     graph = LearningSubmissionGraph(
@@ -91,6 +283,39 @@ def test_learning_submission_graph_confirm_deposits_all_items_and_starts_first_w
     assert active.status == TutorQueueStatus.ACTIVE
     assert active.tutor_session_id is not None
     assert store.require_session(active.tutor_session_id).question_text.startswith("36 颗松果")
+
+
+def test_learning_submission_graph_confirm_can_defer_wrong_tutor_start() -> None:
+    store = InMemoryLearningStore()
+    graph = LearningSubmissionGraph(
+        store=store,
+        session_runner=_fake_runner(),
+        math_gateway=_fixture_gateway(),
+    )
+    draft = graph.start(
+        child_id="child_001",
+        subject="math",
+        grade=4,
+        source_type="photo",
+        raw_text="36 颗松果平均分给 5 只小松鼠，每只几颗，还剩几颗？\n孩子答案：每只 6 颗，还剩 6 颗",
+    )
+
+    result = graph.confirm(draft.submission_id, start_tutor=False)
+    snapshot = store.get_submission_snapshot(result.submission_id)
+
+    assert result.status == LearningSubmissionStatus.TUTORING
+    assert result.wrong_count == 1
+    assert len(snapshot.tutor_queue) == 1
+    assert snapshot.tutor_queue[0].status == TutorQueueStatus.PENDING
+    assert snapshot.tutor_queue[0].tutor_session_id is None
+
+    started = graph.start_next_tutor_item(result.submission_id)
+    active = store.get_active_tutor_item(result.submission_id)
+
+    assert started.status == LearningSubmissionStatus.TUTORING
+    assert active is not None
+    assert active.status == TutorQueueStatus.ACTIVE
+    assert active.tutor_session_id is not None
 
 
 def test_learning_submission_graph_completes_first_wrong_item_and_starts_next() -> None:
@@ -208,3 +433,12 @@ def _fake_runner() -> LLMSessionRunner:
             )
 
     return FakeRunner()
+
+
+def _fake_intent_router(decision: IntentRoutingDecision):
+    class FakeIntentRouter:
+        def route(self, context):
+            assert context.subject_hint == "auto"
+            return decision
+
+    return FakeIntentRouter()

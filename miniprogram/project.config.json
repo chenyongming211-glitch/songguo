@@ -1,16 +1,29 @@
 {
-  "appid": "",
+  "appid": "wx1f9a53e5d64b14c3",
   "projectname": "songguo-mini-program",
   "compileType": "miniprogram",
   "libVersion": "3.15.2",
   "miniprogramRoot": "./",
   "srcMiniprogramRoot": "./",
   "packOptions": {
-    "ignore": [],
+    "ignore": [
+      {
+        "type": "file",
+        "value": "README.md"
+      },
+      {
+        "type": "file",
+        "value": "project.private.config.json"
+      },
+      {
+        "type": "folder",
+        "value": "tests"
+      }
+    ],
     "include": []
   },
   "setting": {
-    "urlCheck": false,
+    "urlCheck": true,
     "es6": true,
     "enhance": true,
     "postcss": true,

@@ -1,6 +1,5 @@
 const {
   generateLearningDiagram,
-  getParentLearningDeposit,
   getParentLearningMemory,
   getParentReviewPlan,
   getParentSafetyEvents,
@@ -16,6 +15,7 @@ const {
   submitPracticeResult,
   upsertChild,
 } = require("../../lib/api");
+const { formatUserFacingError } = require("../../lib/errors");
 
 const SELECTED_CHILD_STORAGE_KEY = "songguo_selected_child_id";
 const REVIEW_SCOPES = [
@@ -25,6 +25,7 @@ const REVIEW_SCOPES = [
   { value: "term", label: "本学期" },
   { value: "yearly", label: "本年度" },
 ];
+const REVIEW_SCOPE_OPTIONS = REVIEW_SCOPES.map((item) => item.label);
 
 function getSelectedChildId() {
   try {
@@ -37,6 +38,11 @@ function getSelectedChildId() {
 function getReviewScopeLabel(scope) {
   const selected = REVIEW_SCOPES.find((item) => item.value === scope);
   return selected ? selected.label : "本周";
+}
+
+function getReviewScopeIndex(scope) {
+  const index = REVIEW_SCOPES.findIndex((item) => item.value === scope);
+  return index >= 0 ? index : 0;
 }
 
 function toParentText(value) {
@@ -64,22 +70,6 @@ function normalizeSessionFeedback(feedback) {
         evidence: toParentText(feedback.evidence),
       }
     : null;
-}
-
-function normalizeLearningDeposit(deposit) {
-  if (!deposit) {
-    return null;
-  }
-  return {
-    ...deposit,
-    parent_summary: toParentText(deposit.parent_summary),
-    mistake_record: deposit.mistake_record
-      ? {
-          ...deposit.mistake_record,
-          main_error_reason_label: toParentText(deposit.mistake_record.main_error_reason_label),
-        }
-      : null,
-  };
 }
 
 function normalizeSummaryDraft(draft, scopeLabel) {
@@ -127,25 +117,137 @@ function normalizeWrongQuestions(items) {
   }));
 }
 
+function firstNonEmpty(values, fallback) {
+  const found = values.find((value) => String(value || "").trim());
+  return found ? toParentText(found).trim() : fallback;
+}
+
+function buildSummaryStats(report) {
+  if (!report) {
+    return [];
+  }
+  return [
+    { label: "学习会话", value: report.session_count || 0 },
+    { label: "错题记录", value: report.wrong_question_count || 0 },
+    { label: "平均提示", value: report.average_hint_level || 0 },
+  ];
+}
+
+function buildParentConclusionItems({ sessionFeedback, summaryDraft, report, reviewScopeLabel }) {
+  const items = [];
+  if (sessionFeedback) {
+    items.push({
+      label: "本次卡点",
+      title: firstNonEmpty([sessionFeedback.question_text], "最近一道题"),
+      text: firstNonEmpty([sessionFeedback.summary], "本次学习反馈正在整理。"),
+    });
+  }
+  if (summaryDraft || report) {
+    items.push({
+      label: reviewScopeLabel || "本期",
+      title: "阶段表现",
+      text: firstNonEmpty(
+        [summaryDraft && summaryDraft.parent_summary, report && report.parent_summary],
+        "孩子完成更多练习后，这里会显示阶段表现。"
+      ),
+    });
+  }
+  if (sessionFeedback && sessionFeedback.evidence) {
+    items.push({
+      label: "判断依据",
+      title: "为什么这么判断",
+      text: firstNonEmpty([sessionFeedback.evidence], "系统会根据提示轨迹和孩子回答给出依据。"),
+    });
+  }
+  if (!items.length) {
+    items.push({
+      label: reviewScopeLabel || "本期",
+      title: "还没有足够记录",
+      text: "孩子完成一次错题引导后，这里会生成本期结论。",
+    });
+  }
+  return items.slice(0, 3);
+}
+
+function buildParentActionItems(reviewPlan, summaryDraft) {
+  const actions = [];
+  if (reviewPlan && reviewPlan.summary) {
+    actions.push({
+      label: "复习方向",
+      title: "先抓最容易反复错的地方",
+      text: firstNonEmpty([reviewPlan.summary], "系统正在整理复习方向。"),
+    });
+  }
+  (reviewPlan && reviewPlan.items ? reviewPlan.items : []).slice(0, 3).forEach((item) => {
+    actions.push({
+      label: "建议练习",
+      title: firstNonEmpty([item.normalized_question], "同类题练习"),
+      text: firstNonEmpty([item.reason], "按最近错因安排同类题。"),
+    });
+  });
+  if (!actions.length && summaryDraft) {
+    (summaryDraft.next_actions || []).slice(0, 3).forEach((item, index) => {
+      actions.push({
+        label: `建议 ${index + 1}`,
+        title: "下一步可以这样做",
+        text: firstNonEmpty([item], "完成一次做题后会生成建议。"),
+      });
+    });
+  }
+  return actions.slice(0, 4);
+}
+
+function buildWeaknessCards(memory) {
+  const topWeaknesses = (memory && memory.top_weaknesses) || [];
+  if (topWeaknesses.length) {
+    return topWeaknesses.slice(0, 3).map((item) => ({
+      title: firstNonEmpty([item.knowledge_point_label], "薄弱知识点"),
+      text: `掌握度 ${item.mastery_score || 0} · 风险 ${toParentText(item.risk_level || "待观察")} · 错 ${
+        item.wrong_count || 0
+      } 次`,
+    }));
+  }
+  if (memory && memory.summary) {
+    return [
+      {
+        title: "整体观察",
+        text: firstNonEmpty([memory.summary], "暂时还没有稳定薄弱点。"),
+      },
+    ];
+  }
+  return [];
+}
+
+function buildRecentWrongCards(items) {
+  return (items || []).slice(0, 5).map((item) => ({
+    questionId: item.question_id,
+    questionText: firstNonEmpty([item.normalized_question], "最近错题"),
+    knowledgePoint: item.knowledge_point || "grade_math_unknown",
+    meta: `${firstNonEmpty([item.knowledge_point_label], "知识点待确认")} · 提示等级 ${
+      item.highest_hint_level || 0
+    } · ${firstNonEmpty([item.misconception_label], "错因待确认")}`,
+  }));
+}
+
 Page({
   data: {
     childId: getSelectedChildId(),
     children: [],
     loading: false,
     error: "",
-    report: null,
-    summaryDraft: null,
-    sessionFeedback: null,
-    learningDeposit: null,
-    memory: null,
-    reviewPlan: null,
+    summaryStats: [],
+    parentConclusionItems: [],
+    parentActionItems: [],
+    weaknessCards: [],
+    recentWrongCards: [],
     safetyEvents: [],
     reviewScope: "weekly",
     reviewScopeLabel: "本周",
+    reviewScopeIndex: 0,
+    reviewScopeOptions: REVIEW_SCOPE_OPTIONS,
     artifactMessage: "",
     experimentalFeaturesEnabled: wx.getStorageSync("songguo_experimental_features") === true,
     reviewScopes: REVIEW_SCOPES,
-    wrongQuestions: [],
   },
 
   onShow() {
@@ -178,7 +280,7 @@ Page({
       wx.setStorageSync(SELECTED_CHILD_STORAGE_KEY, selected.child_id);
       await this.loadReport();
     } catch (error) {
-      this.setData({ error: error.message || "加载孩子档案失败" });
+      this.setData({ error: formatUserFacingError(error) });
     } finally {
       this.setData({ loading: false });
     }
@@ -198,36 +300,34 @@ Page({
       const wrongItems = normalizeWrongQuestions(wrongQuestions.items || []);
       const latestSessionId = wrongItems.length ? wrongItems[0].session_id : "";
       let sessionFeedback = null;
-      let learningDeposit = null;
       if (latestSessionId) {
         try {
           sessionFeedback = await getParentSessionFeedback(this.data.childId, latestSessionId);
         } catch (error) {
           sessionFeedback = null;
         }
-        try {
-          learningDeposit = await getParentLearningDeposit(
-            this.data.childId,
-            latestSessionId,
-            this.data.reviewScope
-          );
-        } catch (error) {
-          learningDeposit = null;
-        }
       }
+      const normalizedReport = normalizeReport(report);
+      const normalizedSummaryDraft = normalizeSummaryDraft(summaryDraft, this.data.reviewScopeLabel);
+      const normalizedMemory = normalizeMemory(memory);
+      const normalizedReviewPlan = normalizeReviewPlan(reviewPlan);
+      const normalizedSessionFeedback = normalizeSessionFeedback(sessionFeedback);
       this.setData({
-        report: normalizeReport(report),
-        summaryDraft: normalizeSummaryDraft(summaryDraft, this.data.reviewScopeLabel),
-        sessionFeedback: normalizeSessionFeedback(sessionFeedback),
-        learningDeposit: normalizeLearningDeposit(learningDeposit),
-        memory: normalizeMemory(memory),
-        reviewPlan: normalizeReviewPlan(reviewPlan),
+        summaryStats: buildSummaryStats(normalizedReport),
+        parentConclusionItems: buildParentConclusionItems({
+          sessionFeedback: normalizedSessionFeedback,
+          summaryDraft: normalizedSummaryDraft,
+          report: normalizedReport,
+          reviewScopeLabel: this.data.reviewScopeLabel,
+        }),
+        parentActionItems: buildParentActionItems(normalizedReviewPlan, normalizedSummaryDraft),
+        weaknessCards: buildWeaknessCards(normalizedMemory),
+        recentWrongCards: buildRecentWrongCards(wrongItems),
         safetyEvents: safetyEvents.items || [],
-        wrongQuestions: wrongItems,
       });
     } catch (error) {
       this.setData({
-        error: error.message || "加载家长报告失败",
+        error: formatUserFacingError(error),
       });
     } finally {
       this.setData({ loading: false });
@@ -241,6 +341,16 @@ Page({
 
   handleRefresh() {
     this.rollupAndLoadReport();
+  },
+
+  handleRetry() {
+    this.ensureChildrenAndLoad();
+  },
+
+  handleOpenSettings() {
+    wx.switchTab({
+      url: "/pages/settings/index",
+    });
   },
 
   async rollupAndLoadReport() {
@@ -259,7 +369,25 @@ Page({
     if (scope === this.data.reviewScope) {
       return;
     }
-    this.setData({ reviewScope: scope, reviewScopeLabel: getReviewScopeLabel(scope) });
+    this.setData({
+      reviewScope: scope,
+      reviewScopeLabel: getReviewScopeLabel(scope),
+      reviewScopeIndex: getReviewScopeIndex(scope),
+    });
+    this.loadReport();
+  },
+
+  handleScopePickerChange(event) {
+    const index = Number(event.detail.value || 0);
+    const selected = REVIEW_SCOPES[index] || REVIEW_SCOPES[0];
+    if (selected.value === this.data.reviewScope) {
+      return;
+    }
+    this.setData({
+      reviewScope: selected.value,
+      reviewScopeLabel: selected.label,
+      reviewScopeIndex: getReviewScopeIndex(selected.value),
+    });
     this.loadReport();
   },
 

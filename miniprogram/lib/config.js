@@ -1,13 +1,34 @@
 const STORAGE_KEY = "songguo_backend_config";
 const LEGACY_STORAGE_KEY = ["deep", "tutor_backend_config"].join("");
-const DEFAULT_HTTP_BASE_URL = "http://127.0.0.1:8001";
+const DEFAULT_HTTP_BASE_URL = "https://api.songguoxue.com";
+const LOCAL_DEBUG_HOST_PATTERN =
+  /^https?:\/\/(?:localhost|127(?:\.\d{1,3}){0,3}|0\.0\.0\.0|\[::1\]|::1)(?::|\/|$)/i;
 
 function trimTrailingSlash(value) {
   return String(value || "").trim().replace(/\/+$/, "");
 }
 
+function isDevtoolsRuntime() {
+  try {
+    const info = wx.getSystemInfoSync ? wx.getSystemInfoSync() : {};
+    return info && info.platform === "devtools";
+  } catch (_error) {
+    return false;
+  }
+}
+
+function shouldUseProductionDefault(value) {
+  if (!value || isDevtoolsRuntime()) {
+    return false;
+  }
+  return !/^https:\/\//i.test(value) || LOCAL_DEBUG_HOST_PATTERN.test(value);
+}
+
 function normalizeHttpBaseUrl(value) {
   const normalized = trimTrailingSlash(value);
+  if (shouldUseProductionDefault(normalized)) {
+    return DEFAULT_HTTP_BASE_URL;
+  }
   return normalized || DEFAULT_HTTP_BASE_URL;
 }
 
@@ -50,6 +71,7 @@ function resetBackendConfig() {
 module.exports = {
   DEFAULT_HTTP_BASE_URL,
   getBackendConfig,
+  isDevtoolsRuntime,
   normalizeHttpBaseUrl,
   resetBackendConfig,
   saveBackendConfig,

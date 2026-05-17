@@ -1,6 +1,7 @@
 const { getSystemStatus } = require("../../lib/api");
 const {
   getBackendConfig,
+  isDevtoolsRuntime,
   resetBackendConfig,
   saveBackendConfig,
 } = require("../../lib/config");
@@ -15,6 +16,9 @@ Page({
     testing: false,
     error: "",
     wechatMode: "本地未登录 / 可使用 Mock",
+    advancedDiagnosticsVisible: false,
+    diagnosticsAvailable: false,
+    serviceLabel: "生产学习服务",
   },
 
   onShow() {
@@ -24,13 +28,26 @@ Page({
 
   loadConfig() {
     const config = getBackendConfig();
+    const diagnosticsAvailable = isDevtoolsRuntime();
     this.setData({
       httpBaseUrl: config.httpBaseUrl,
+      diagnosticsAvailable,
+      advancedDiagnosticsVisible: diagnosticsAvailable ? this.data.advancedDiagnosticsVisible : false,
+      serviceLabel: diagnosticsAvailable ? "开发调试服务" : "生产学习服务",
     });
   },
 
   handleHttpInput(event) {
     this.setData({ httpBaseUrl: event.detail.value || "" });
+  },
+
+  handleToggleAdvancedDiagnostics() {
+    if (!this.data.diagnosticsAvailable) {
+      return;
+    }
+    this.setData({
+      advancedDiagnosticsVisible: !this.data.advancedDiagnosticsVisible,
+    });
   },
 
   refreshWechatMode() {

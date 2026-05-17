@@ -31,11 +31,18 @@ def check_production_readiness() -> ProductionReadiness:
         if not vision_model:
             missing.append("SONGGUO_VISION_MODEL")
         else:
-            binding = _env_with_legacy("LLM_BINDING") or "openai"
+            binding = _env_with_legacy("SONGGUO_VISION_BINDING") or _env_with_legacy("LLM_BINDING") or "openai"
             if not supports_vision(binding, vision_model):
                 warnings.append(
-                    "SONGGUO_VISION_MODEL does not advertise vision support for the configured LLM_BINDING"
+                    "SONGGUO_VISION_MODEL does not advertise vision support for the configured vision binding"
                 )
+        if not _env_with_legacy("SONGGUO_VISION_API_KEY"):
+            missing.append("SONGGUO_VISION_API_KEY")
+    elif photo_ocr_provider in {"aliyun_edu", "aliyun_edu_ocr"}:
+        if not _env_with_legacy("SONGGUO_ALIYUN_EDU_OCR_ACCESS_KEY_ID"):
+            missing.append("SONGGUO_ALIYUN_EDU_OCR_ACCESS_KEY_ID")
+        if not _env_with_legacy("SONGGUO_ALIYUN_EDU_OCR_ACCESS_KEY_SECRET"):
+            missing.append("SONGGUO_ALIYUN_EDU_OCR_ACCESS_KEY_SECRET")
     elif not photo_ocr_provider:
         warnings.append("SONGGUO_PHOTO_OCR_PROVIDER is not set; photo review will use local fallback OCR")
     if _env_with_legacy("WECHAT_CONTENT_SAFETY_PROVIDER") != "wechat":
@@ -62,6 +69,7 @@ def _env_with_legacy(key: str) -> str:
         "SONGGUO_SESSION_SECRET": "DEEPTUTOR_SESSION_SECRET",
         "SONGGUO_PHOTO_OCR_PROVIDER": "DEEPTUTOR_PHOTO_OCR_PROVIDER",
         "SONGGUO_VISION_MODEL": "DEEPTUTOR_VISION_MODEL",
+        "SONGGUO_VISION_API_KEY": "DEEPTUTOR_VISION_API_KEY",
     }.get(key)
     if not legacy:
         return ""

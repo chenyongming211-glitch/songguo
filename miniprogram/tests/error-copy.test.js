@@ -4,7 +4,7 @@ const { formatUserFacingError } = require("../lib/errors");
 
 assert.equal(
   formatUserFacingError(new Error("Network request failed")),
-  "后端暂时连接不上，请到设置页检查服务地址或本地服务是否启动。"
+  "请稍后重试或到设置页测试连接。"
 );
 
 assert.equal(
@@ -19,7 +19,7 @@ assert.equal(
 
 assert.equal(
   formatUserFacingError(new Error("Active tutor item not found")),
-  "本次错题陪练已经结束，请返回本次总结。"
+  "本次陪练已经结束，请返回本次总结。"
 );
 
 assert.equal(formatUserFacingError(new Error("受控教学输入被拦截")), "受控教学输入被拦截");

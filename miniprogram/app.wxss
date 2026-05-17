@@ -1,13 +1,14 @@
 .page {
   min-height: 100vh;
   box-sizing: border-box;
-  padding: 34rpx 26rpx 44rpx;
+  padding: 32rpx 28rpx 46rpx;
   background:
     radial-gradient(circle at 12% 0%, rgba(250, 204, 21, 0.28) 0%, rgba(250, 204, 21, 0) 34%),
     radial-gradient(circle at 100% 18%, rgba(20, 184, 166, 0.18) 0%, rgba(20, 184, 166, 0) 42%),
     linear-gradient(180deg, #fff8ec 0%, #f4efe4 42%, #edf7f3 100%);
   color: #1f2933;
   font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  font-size: 30rpx;
 }
 
 .page-flex {
@@ -27,7 +28,7 @@
 .hero-card {
   position: relative;
   overflow: hidden;
-  padding: 36rpx;
+  padding: 38rpx 34rpx;
   margin-bottom: 26rpx;
   background:
     radial-gradient(circle at 88% 10%, rgba(250, 204, 21, 0.3) 0%, rgba(250, 204, 21, 0) 28%),
@@ -42,39 +43,40 @@
   border-radius: 999rpx;
   background: rgba(255, 244, 214, 0.92);
   color: #925f0a;
-  font-size: 22rpx;
+  font-size: 26rpx;
   font-weight: 700;
-  letter-spacing: 1rpx;
+  letter-spacing: 0;
 }
 
 .hero-title {
   display: block;
   color: #1c1917;
-  font-size: 46rpx;
+  font-size: 48rpx;
   font-weight: 900;
-  line-height: 1.18;
-  letter-spacing: -1rpx;
+  line-height: 1.2;
+  letter-spacing: 0;
 }
 
 .hero-subtitle {
   display: block;
   margin-top: 18rpx;
   color: #5f5a50;
-  font-size: 25rpx;
-  line-height: 1.7;
+  font-size: 30rpx;
+  line-height: 1.62;
 }
 
 .hero-footnote {
   display: block;
   margin-top: 18rpx;
   color: #0f766e;
-  font-size: 23rpx;
+  font-size: 28rpx;
   font-weight: 700;
   line-height: 1.5;
 }
 
 .button-row {
   display: flex;
+  flex-wrap: wrap;
   gap: 16rpx;
   margin-top: 24rpx;
 }
@@ -84,10 +86,11 @@
 .button-subtle,
 .mode-button {
   border-radius: 999rpx !important;
-  font-size: 27rpx !important;
+  min-height: 88rpx !important;
+  font-size: 30rpx !important;
   font-weight: 800 !important;
-  line-height: 1.2 !important;
-  padding: 0 30rpx !important;
+  line-height: 88rpx !important;
+  padding: 0 32rpx !important;
 }
 
 .button-primary {
@@ -117,17 +120,17 @@
 .section-title {
   display: block;
   color: #1c1917;
-  font-size: 31rpx;
+  font-size: 34rpx;
   font-weight: 900;
-  letter-spacing: -0.2rpx;
+  letter-spacing: 0;
 }
 
 .section-text {
   display: block;
   margin-top: 12rpx;
   color: #5f5a50;
-  font-size: 24rpx;
-  line-height: 1.68;
+  font-size: 30rpx;
+  line-height: 1.62;
 }
 
 .chip {
@@ -137,7 +140,7 @@
   border-radius: 999rpx;
   background: rgba(219, 251, 243, 0.9);
   color: #0f766e;
-  font-size: 22rpx;
+  font-size: 26rpx;
   font-weight: 800;
 }
 
@@ -159,8 +162,8 @@
 .tiny-note {
   display: block;
   color: #6b675d;
-  font-size: 22rpx;
-  line-height: 1.5;
+  font-size: 26rpx;
+  line-height: 1.55;
 }
 
 .state-card,
@@ -169,6 +172,8 @@
   margin-top: 18rpx;
   padding: 30rpx;
   border-radius: 28rpx;
+  font-size: 30rpx;
+  line-height: 1.6;
 }
 
 .state-card {
@@ -185,7 +190,7 @@
 .empty-title {
   display: block;
   color: #1c1917;
-  font-size: 31rpx;
+  font-size: 34rpx;
   font-weight: 900;
 }
 
@@ -193,14 +198,34 @@
   display: block;
   margin-top: 12rpx;
   color: #5f5a50;
-  font-size: 24rpx;
-  line-height: 1.68;
+  font-size: 30rpx;
+  line-height: 1.62;
 }
 
 .error-card {
   background: rgba(255, 241, 242, 0.96);
   color: #b91c1c;
   border: 1rpx solid rgba(254, 202, 202, 0.95);
+}
+
+.error-title {
+  display: block;
+  color: #991b1b;
+  font-size: 34rpx;
+  font-weight: 900;
+  line-height: 1.35;
+}
+
+.error-text {
+  display: block;
+  margin-top: 10rpx;
+  color: #b91c1c;
+  font-size: 28rpx;
+  line-height: 1.55;
+}
+
+.error-actions {
+  margin-top: 20rpx;
 }
 
 .input-card {
@@ -212,7 +237,7 @@
   display: block;
   margin-bottom: 12rpx;
   color: #334155;
-  font-size: 24rpx;
+  font-size: 28rpx;
   font-weight: 800;
 }
 
@@ -226,7 +251,7 @@
   background: rgba(255, 255, 255, 0.92);
   border: 1rpx solid rgba(15, 118, 110, 0.16);
   color: #111827;
-  font-size: 28rpx;
+  font-size: 30rpx;
   box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.9);
 }
 
@@ -246,7 +271,7 @@
 .status-label {
   display: block;
   color: #6b675d;
-  font-size: 22rpx;
+  font-size: 26rpx;
   font-weight: 700;
 }
 
@@ -254,7 +279,7 @@
   display: block;
   margin-top: 8rpx;
   color: #1c1917;
-  font-size: 30rpx;
+  font-size: 32rpx;
   font-weight: 900;
   line-height: 1.35;
 }

@@ -1,0 +1,2 @@
+QUESTION: Choose the correct tense: He ____ to school yesterday.
+ANSWER: go

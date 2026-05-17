@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter, File, Form, Header, HTTPException, UploadFile
 from pydantic import BaseModel
@@ -20,6 +21,7 @@ from songguo.backend.api.schemas.learning_submission import (
 from songguo.backend.services.learning.models import ResumeSnapshot, TeachingProgress, WrongQuestion
 from songguo.backend.services.learning.progress import build_teaching_progress
 from songguo.backend.services.learning.photo_review import (
+    AliyunEduOCRProvider,
     ConfirmPhotoReviewRequest,
     DeterministicOCRProvider,
     PhotoReview,
@@ -35,6 +37,10 @@ from songguo.backend.services.learning.service import (
     LearningService,
     SubmitAttemptResult,
     get_global_learning_service,
+)
+from songguo.backend.services.learning.submission_visual_fallback import (
+    visual_fallback_counts,
+    visual_fallback_state,
 )
 from songguo.backend.services.learning.voice_input import (
     DeterministicASRProvider,
@@ -65,15 +71,38 @@ class PracticeResultRequest(BaseModel):
     correct: bool
 
 
+class SubmissionPhotoDraftItemResponse(BaseModel):
+    item_index: int
+    question_text: str
+    child_answer: str = ""
+    work_steps: str = ""
+    confidence: float = 0.0
+    bbox: dict[str, int] | None = None
+    ocr_action: str = ""
+    ocr_source: str = ""
+    quality_warnings: list[str] = []
+    display_status: str = "pending"
+
+
 class SubmissionPhotoDraftResponse(BaseModel):
     source_type: str = "photo"
     image_path: str
+    image_refs: list[str] = []
     raw_text: str
     question_text: str = ""
     child_answer: str = ""
     work_steps: str = ""
     confidence: float = 0.0
     needs_confirmation: bool = True
+    items: list[SubmissionPhotoDraftItemResponse] = []
+    ocr_plan: dict[str, Any] = {}
+    detected_regions: list[dict[str, int]] = []
+    quality_warnings: list[str] = []
+    quality_message: str = ""
+    preprocess_source: str = ""
+    ocr_provider: str = ""
+    ocr_model: str = ""
+    ocr_source: str = ""
 
 
 class SubmissionVoiceDraftResponse(BaseModel):
@@ -108,20 +137,47 @@ def get_learning_service() -> LearningService:
     return get_global_learning_service()
 
 
+def _env_with_local(key: str, legacy_key: str | None = None) -> str:
+    value = os.getenv(key)
+    if value:
+        return value.strip()
+    value = _read_local_dotenv_value(key)
+    if value:
+        return value
+    if not legacy_key:
+        return ""
+    return os.getenv(legacy_key) or _read_local_dotenv_value(legacy_key)
+
+
+def _read_local_dotenv_value(key: str) -> str:
+    root = Path(__file__).resolve().parents[3]
+    for env_path in (root / "songguo" / ".env", root / ".env"):
+        if not env_path.exists():
+            continue
+        for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            current_key, value = line.split("=", 1)
+            if current_key.strip() == key:
+                return value.strip().strip("\"'")
+    return ""
+
+
 def get_photo_review_service() -> PhotoReviewService:
     global _PHOTO_REVIEW_SERVICE
     if _PHOTO_REVIEW_SERVICE is None:
         ocr_provider_name = (
-            os.getenv("SONGGUO_PHOTO_OCR_PROVIDER")
-            or os.getenv("DEEPTUTOR_PHOTO_OCR_PROVIDER")
+            _env_with_local("SONGGUO_PHOTO_OCR_PROVIDER", "DEEPTUTOR_PHOTO_OCR_PROVIDER")
             or ""
         )
-        vision_model = os.getenv("SONGGUO_VISION_MODEL") or os.getenv("DEEPTUTOR_VISION_MODEL")
-        ocr_provider = (
-            VisionOCRProvider(model=vision_model)
-            if ocr_provider_name == "vision"
-            else DeterministicOCRProvider()
-        )
+        vision_model = _env_with_local("SONGGUO_VISION_MODEL", "DEEPTUTOR_VISION_MODEL")
+        if ocr_provider_name == "vision":
+            ocr_provider = VisionOCRProvider(model=vision_model)
+        elif ocr_provider_name in {"aliyun_edu", "aliyun_edu_ocr"}:
+            ocr_provider = AliyunEduOCRProvider()
+        else:
+            ocr_provider = DeterministicOCRProvider()
         _PHOTO_REVIEW_SERVICE = PhotoReviewService(
             store=get_learning_service().store,
             artifact_root=Path("data/user/learning_artifacts"),
@@ -189,10 +245,42 @@ def _build_photo_submission_raw_text(*, question_text: str, child_answer: str, w
     )
 
 
+def _photo_submission_raw_text_from_draft(draft) -> str:
+    raw_text = str(getattr(draft, "raw_text", "") or "").strip()
+    if raw_text:
+        return raw_text
+    items = list(getattr(draft, "items", []) or [])
+    if items:
+        return "\n\n".join(
+            _build_photo_submission_raw_text(
+                question_text=item.question_text,
+                child_answer=item.child_answer,
+                work_steps=item.work_steps,
+            )
+            for item in items
+        )
+    return _build_photo_submission_raw_text(
+        question_text=draft.question_text,
+        child_answer=draft.child_answer,
+        work_steps=draft.work_steps,
+    )
+
+
+def _photo_draft_item_display_status(item) -> str:
+    if not item.question_text or not item.child_answer:
+        return "pending"
+    if item.confidence < 0.75:
+        return "pending"
+    return "pending"
+
+
 def _submission_response(submission_id: str) -> LearningSubmissionResponse:
     service = get_learning_service()
     snapshot = service.get_submission_snapshot(submission_id)
     submission = snapshot.submission
+    fallback_counts = visual_fallback_counts(snapshot.items)
+    pending_fallback_count = fallback_counts["pending_visual_fallback_count"]
+    running_fallback_count = fallback_counts["running_visual_fallback_count"]
     active_session = None
     active_queue = service.store.get_active_tutor_item(submission_id)
     if active_queue and active_queue.tutor_session_id:
@@ -210,6 +298,15 @@ def _submission_response(submission_id: str) -> LearningSubmissionResponse:
         submission_id=submission.submission_id,
         child_id=submission.child_id,
         subject=submission.subject,
+        detected_subject=submission.detected_subject,
+        detected_task_type=submission.detected_task_type,
+        detected_intent=submission.detected_intent,
+        subject_confidence=submission.subject_confidence,
+        route_to=submission.route_to,
+        routing_evidence=submission.routing_evidence,
+        guard_reason=submission.guard_reason,
+        router_version=submission.router_version,
+        needs_clarification=submission.needs_clarification,
         grade=submission.grade,
         source_type=submission.source_type,
         status=submission.status,
@@ -217,23 +314,11 @@ def _submission_response(submission_id: str) -> LearningSubmissionResponse:
         correct_count=submission.correct_count,
         wrong_count=submission.wrong_count,
         needs_manual_confirm_count=submission.needs_manual_confirm_count,
+        pending_visual_fallback_count=pending_fallback_count,
+        visual_fallback_active=bool(pending_fallback_count or running_fallback_count),
         active_queue_item_id=submission.active_queue_item_id,
         active_tutor_session=active_session,
-        items=[
-            LearningSubmissionItemResponse(
-                item_id=item.item_id,
-                item_index=item.item_index,
-                question_text=item.question_text,
-                child_answer=item.child_answer,
-                correct_answer=item.correct_answer,
-                judge_result=item.judge_result,
-                question_type_id=item.question_type_id,
-                knowledge_point=item.knowledge_point,
-                misconception_tag=item.misconception_tag,
-                status=item.status,
-            )
-            for item in snapshot.items
-        ],
+        items=[_submission_item_response(item) for item in snapshot.items],
         mastery_evidence=[
             MasteryEvidenceResponse(
                 evidence_id=evidence.evidence_id,
@@ -262,8 +347,63 @@ def _submission_response(submission_id: str) -> LearningSubmissionResponse:
             "correct_count": submission.correct_count,
             "wrong_count": submission.wrong_count,
             "tutor_queue_count": len(snapshot.tutor_queue),
+            **fallback_counts,
         },
     )
+
+
+def _submission_item_response(item) -> LearningSubmissionItemResponse:
+    rubric = item.data_json.get("basic_subject_rubric") if isinstance(item.data_json, dict) else None
+    if not isinstance(rubric, dict):
+        rubric = {}
+    scores = rubric.get("rubric_scores") if isinstance(rubric.get("rubric_scores"), dict) else {}
+    fallback = visual_fallback_state(item)
+    return LearningSubmissionItemResponse(
+        item_id=item.item_id,
+        item_index=item.item_index,
+        question_text=item.question_text,
+        child_answer=item.child_answer,
+        detected_subject=item.detected_subject,
+        detected_task_type=item.detected_task_type,
+        evaluation_mode=item.evaluation_mode,
+        correct_answer=item.correct_answer,
+        judge_result=item.judge_result,
+        question_type_id=item.question_type_id,
+        knowledge_point=item.knowledge_point,
+        misconception_tag=item.misconception_tag,
+        rubric_outcome=str(rubric.get("outcome") or ""),
+        rubric_feedback=str(rubric.get("feedback_summary") or ""),
+        rubric_scores=_normalize_rubric_scores(scores),
+        bbox=item.bbox_json,
+        status=item.status,
+        display_status=_item_display_status(item),
+        visual_fallback_status=str(fallback.get("status") or ""),
+        visual_fallback_reason=str(fallback.get("reason") or ""),
+        visual_fallback_message=str(fallback.get("message") or ""),
+        visual_fallback_attempts=int(fallback.get("attempts") or 0),
+    )
+
+
+def _item_display_status(item) -> str:
+    fallback = visual_fallback_state(item)
+    if fallback.get("status") in {"pending", "running"}:
+        return "fallback_running"
+    judge_result = getattr(item.judge_result, "value", str(item.judge_result))
+    if judge_result == "correct":
+        return "correct"
+    if judge_result == "wrong":
+        return "wrong"
+    return "pending"
+
+
+def _normalize_rubric_scores(scores: dict) -> dict[str, int]:
+    normalized: dict[str, int] = {}
+    for key, value in scores.items():
+        try:
+            normalized[str(key)] = int(value)
+        except (TypeError, ValueError):
+            normalized[str(key)] = 0
+    return normalized
 
 
 @router.post("/submissions/photo-draft", response_model=SubmissionPhotoDraftResponse)
@@ -277,22 +417,43 @@ async def create_submission_photo_draft(
     _authorize_child(child_id, x_session_token)
     content = await file.read()
     image_path, draft = await get_photo_review_service().recognize_submission_draft_async(
+        child_id=child_id,
         filename=file.filename or "upload.bin",
         content=content,
         content_type=file.content_type or "application/octet-stream",
     )
     return SubmissionPhotoDraftResponse(
         image_path=image_path,
-        raw_text=_build_photo_submission_raw_text(
-            question_text=draft.question_text,
-            child_answer=draft.child_answer,
-            work_steps=draft.work_steps,
-        ),
+        image_refs=[image_path],
+        raw_text=_photo_submission_raw_text_from_draft(draft),
         question_text=draft.question_text,
         child_answer=draft.child_answer,
         work_steps=draft.work_steps,
         confidence=draft.confidence,
         needs_confirmation=draft.needs_confirmation,
+        items=[
+            SubmissionPhotoDraftItemResponse(
+                item_index=item.item_index,
+                question_text=item.question_text,
+                child_answer=item.child_answer,
+                work_steps=item.work_steps,
+                confidence=item.confidence,
+                bbox=item.bbox.model_dump(mode="json") if item.bbox else None,
+                ocr_action=item.source_action,
+                ocr_source=draft.source,
+                quality_warnings=item.quality_warnings,
+                display_status=_photo_draft_item_display_status(item),
+            )
+            for item in draft.items
+        ],
+        ocr_plan=draft.data_json.get("ocr_plan", {}) if isinstance(draft.data_json, dict) else {},
+        detected_regions=[region.model_dump(mode="json") for region in draft.detected_regions],
+        quality_warnings=draft.quality_warnings,
+        quality_message=draft.quality_message,
+        preprocess_source=draft.preprocess_source,
+        ocr_provider=draft.provider,
+        ocr_model=draft.model,
+        ocr_source=draft.source,
     )
 
 
@@ -333,6 +494,22 @@ def create_learning_submission(
             grade=request.grade,
             source_type=request.source_type,
             raw_text=request.raw_text,
+            image_refs=request.image_refs,
+            item_bboxes={
+                item.item_index: item.bbox
+                for item in request.draft_items
+                if item.bbox
+            },
+            item_metadata={
+                item.item_index: {
+                    "ocr_action": item.ocr_action,
+                    "ocr_source": item.ocr_source,
+                    "display_status": item.display_status,
+                    "quality_warnings": item.quality_warnings,
+                }
+                for item in request.draft_items
+                if item.ocr_action or item.ocr_source or item.display_status or item.quality_warnings
+            },
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from None
@@ -366,7 +543,31 @@ def confirm_learning_submission(
     )
     if request.raw_text is not None:
         get_learning_service().store.update_submission(submission.submission_id, raw_text=request.raw_text)
-    get_learning_service().confirm_submission(submission.submission_id)
+    get_learning_service().confirm_submission(
+        submission.submission_id,
+        start_tutor=request.start_tutor,
+    )
+    return _submission_response(submission_id)
+
+
+@router.post("/submissions/{submission_id}/visual-fallback/step", response_model=LearningSubmissionResponse)
+async def run_submission_visual_fallback_step(
+    submission_id: str,
+    max_items: int = 1,
+    x_session_token: str | None = Header(None, alias="X-Session-Token"),
+) -> LearningSubmissionResponse:
+    _authorize_submission_access(
+        submission_id,
+        child_id=None,
+        session_token=x_session_token,
+    )
+    try:
+        await get_learning_service().run_submission_visual_fallback_step(
+            submission_id,
+            max_items=max_items,
+        )
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Learning submission not found") from None
     return _submission_response(submission_id)
 
 

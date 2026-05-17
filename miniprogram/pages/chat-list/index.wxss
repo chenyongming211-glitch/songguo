@@ -7,40 +7,32 @@
   z-index: 2;
 }
 
-.hero-badges {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12rpx;
-  margin-top: 22rpx;
+.entry-panel {
+  margin-top: 24rpx;
 }
 
-.hero-badge {
-  padding: 10rpx 18rpx;
-  border-radius: 999rpx;
-  background: rgba(255, 247, 237, 0.92);
-  color: #92400e;
-  font-size: 22rpx;
-  font-weight: 850;
-  box-shadow: 0 10rpx 24rpx rgba(120, 53, 15, 0.08);
+.entry-primary {
+  width: 100%;
+  margin: 0 !important;
 }
 
 .entry-row {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12rpx;
   margin-top: 16rpx;
 }
 
 .entry-button {
-  min-height: 72rpx;
+  min-height: 90rpx;
   margin: 0 !important;
-  padding: 0 16rpx !important;
-  border-radius: 18rpx !important;
+  padding: 0 18rpx !important;
+  border-radius: 22rpx !important;
   background: rgba(255, 255, 255, 0.72) !important;
   color: #134e4a !important;
-  font-size: 24rpx !important;
+  font-size: 30rpx !important;
   font-weight: 900 !important;
-  line-height: 72rpx !important;
+  line-height: 90rpx !important;
   border: 1rpx solid rgba(15, 118, 110, 0.12) !important;
 }
 
@@ -74,7 +66,7 @@
 
 .learner-pill-text {
   color: #134e4a;
-  font-size: 23rpx;
+  font-size: 27rpx;
   font-weight: 900;
   white-space: nowrap;
 }
@@ -84,7 +76,7 @@
   border-radius: 999rpx;
   background: rgba(240, 253, 250, 0.94);
   color: #0f766e;
-  font-size: 19rpx;
+  font-size: 24rpx;
   font-weight: 850;
   white-space: nowrap;
 }
@@ -112,7 +104,7 @@
   border-radius: 999rpx !important;
   background: rgba(241, 245, 249, 0.9) !important;
   color: #475569 !important;
-  font-size: 22rpx !important;
+  font-size: 26rpx !important;
   font-weight: 850 !important;
 }
 
@@ -120,43 +112,6 @@
   background: linear-gradient(135deg, #0f766e 0%, #134e4a 100%) !important;
   color: #ffffff !important;
   box-shadow: 0 14rpx 30rpx rgba(15, 118, 110, 0.18) !important;
-}
-
-.promise-grid {
-  display: flex;
-  gap: 14rpx;
-  margin-bottom: 26rpx;
-}
-
-.promise-card {
-  flex: 1;
-  min-height: 154rpx;
-  padding: 22rpx 18rpx;
-  box-sizing: border-box;
-}
-
-.promise-index {
-  display: block;
-  color: #ca8a04;
-  font-size: 20rpx;
-  font-weight: 900;
-  letter-spacing: 1rpx;
-}
-
-.promise-title {
-  display: block;
-  margin-top: 10rpx;
-  color: #1c1917;
-  font-size: 26rpx;
-  font-weight: 900;
-}
-
-.promise-text {
-  display: block;
-  margin-top: 8rpx;
-  color: #6b675d;
-  font-size: 21rpx;
-  line-height: 1.45;
 }
 
 .section-heading {
@@ -210,7 +165,7 @@
   display: block;
   margin-top: 10rpx;
   color: #7a7368;
-  font-size: 22rpx;
+  font-size: 26rpx;
 }
 
 .session-action {
@@ -232,6 +187,6 @@
   display: block;
   margin-top: 18rpx;
   color: #3f3a32;
-  font-size: 25rpx;
-  line-height: 1.7;
+  font-size: 30rpx;
+  line-height: 1.62;
 }

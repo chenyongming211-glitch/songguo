@@ -11,6 +11,8 @@ const { formatUserFacingError } = require("../../lib/errors");
 const { getSubjectModeLabel } = require("../../lib/learning-copy");
 const { formatTimestamp, shortenText } = require("../../lib/utils");
 
+const PENDING_SUBMISSION_DRAFT_KEY = "songguo_pending_submission_draft";
+
 function getChildGradeText(child) {
   if (!child) {
     return "3 年级";
@@ -55,6 +57,7 @@ function chooseHomeworkImage() {
 
     wx.chooseImage({
       count: 1,
+      sizeType: ["compressed"],
       sourceType: ["camera", "album"],
       success: (response) => {
         const filePath = response.tempFilePaths && response.tempFilePaths[0];
@@ -65,6 +68,23 @@ function chooseHomeworkImage() {
         reject(new Error("没有选择图片"));
       },
       fail: (error) => reject(new Error((error && error.errMsg) || "选择图片失败")),
+    });
+  });
+}
+
+function compressHomeworkImage(filePath) {
+  return new Promise((resolve) => {
+    if (!wx.compressImage || !filePath) {
+      resolve(filePath);
+      return;
+    }
+    wx.compressImage({
+      src: filePath,
+      quality: 68,
+      success: (response) => {
+        resolve((response && response.tempFilePath) || filePath);
+      },
+      fail: () => resolve(filePath),
     });
   });
 }
@@ -124,6 +144,32 @@ function buildRecognizedSubmissionText(review) {
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+function savePendingSubmissionDraft(sourceType, childId, draft, initialText, options) {
+  const payload = {
+    sourceType,
+    childId,
+    initialText,
+    localImagePath: (options && options.localImagePath) || "",
+    confidence: Number((draft && draft.confidence) || 0),
+    itemCount: Array.isArray(draft && draft.items) ? draft.items.length : 0,
+    items: (draft && draft.items) || [],
+    imageRefs: (draft && draft.image_refs) || [],
+    detectedRegions: (draft && draft.detected_regions) || [],
+    qualityWarnings: (draft && draft.quality_warnings) || [],
+    qualityMessage: (draft && draft.quality_message) || "",
+    preprocessSource: (draft && draft.preprocess_source) || "",
+    ocrProvider: (draft && draft.ocr_provider) || "",
+    ocrModel: (draft && draft.ocr_model) || "",
+    createdAt: Date.now(),
+  };
+  try {
+    wx.setStorageSync(PENDING_SUBMISSION_DRAFT_KEY, payload);
+    return true;
+  } catch (_error) {
+    return false;
+  }
 }
 
 Page({
@@ -202,6 +248,16 @@ Page({
     this.ensureChildrenAndLoad();
   },
 
+  handleRetry() {
+    this.ensureChildrenAndLoad();
+  },
+
+  handleOpenSettings() {
+    wx.switchTab({
+      url: "/pages/settings/index",
+    });
+  },
+
   handleCreateSession() {
     this.handleStartSubmission({ currentTarget: { dataset: { sourceType: "text" } } });
   },
@@ -211,13 +267,14 @@ Page({
     this.navigateToSubmissionReview(sourceType, "");
   },
 
-  navigateToSubmissionReview(sourceType, initialText) {
+  navigateToSubmissionReview(sourceType, initialText, options) {
+    const hasDraft = options && options.usePendingDraft;
     wx.navigateTo({
       url: `/pages/submission-review/index?sourceType=${encodeURIComponent(
         sourceType
       )}&childId=${encodeURIComponent(this.data.childId)}&initialText=${encodeURIComponent(
-        initialText || ""
-      )}`,
+        hasDraft ? "" : initialText || ""
+      )}${hasDraft ? "&pendingDraft=1" : ""}`,
     });
   },
 
@@ -227,16 +284,24 @@ Page({
     }
     this.setData({ recognizingPhoto: true, error: "" });
     try {
-      const filePath = await chooseHomeworkImage();
-      const review = await recognizeSubmissionPhoto(filePath, this.data.childId, "math");
+      const localImagePath = await chooseHomeworkImage();
+      const uploadImagePath = await compressHomeworkImage(localImagePath);
+      const review = await recognizeSubmissionPhoto(uploadImagePath, this.data.childId);
       const initialText = buildRecognizedSubmissionText(review);
+      const usePendingDraft = savePendingSubmissionDraft(
+        "photo",
+        this.data.childId,
+        review,
+        initialText,
+        { localImagePath }
+      );
       if (!initialText) {
         wx.showToast({
           title: "没识别清楚，请手动确认",
           icon: "none",
         });
       }
-      this.navigateToSubmissionReview("photo", initialText);
+      this.navigateToSubmissionReview("photo", initialText, { usePendingDraft });
     } catch (error) {
       this.setData({ error: formatUserFacingError(error) });
     } finally {
@@ -251,15 +316,21 @@ Page({
     this.setData({ recognizingVoice: true, error: "" });
     try {
       const filePath = await recordHomeworkVoice();
-      const draft = await recognizeSubmissionVoice(filePath, this.data.childId, "math");
+      const draft = await recognizeSubmissionVoice(filePath, this.data.childId);
       const initialText = String((draft && (draft.raw_text || draft.transcript)) || "").trim();
+      const usePendingDraft = savePendingSubmissionDraft(
+        "voice",
+        this.data.childId,
+        draft,
+        initialText
+      );
       if (!initialText) {
         wx.showToast({
           title: "没听清楚，请手动确认",
           icon: "none",
         });
       }
-      this.navigateToSubmissionReview("voice", initialText);
+      this.navigateToSubmissionReview("voice", initialText, { usePendingDraft });
     } catch (error) {
       this.setData({ error: formatUserFacingError(error) });
     } finally {

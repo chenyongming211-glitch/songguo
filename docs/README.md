@@ -24,6 +24,10 @@
 - `v0.1-unified-learning-submission-development-plan.md`: 统一 Learning Submission 实施版开发计划，按 S0-S10 拆分 UI、Store、Intake、SubmissionGraph、API、小程序、掌握度、拍照语音和真实评测任务。
 - `v0.2-auto-subject-routing-plan.md`: v0.2 自动学科识别与智能体路由整改方案，定义前端统一做题入口、后端自动识别数学/语文/英语并路由到对应 TutorGraph 的短中长期计划。
 - `v0.2-product-architecture-optimization-plan.md`: v0.2 产品架构优化方案，定义真实手机私测安全、拍照可靠性、Graph 幂等、统一鉴权、可观测性、评测门禁和长期平台化演进。
+- `v0.2-miniprogram-information-architecture-plan.md`: v0.2 小程序信息架构与页面收敛方案，定义学习页、提交确认页、陪练页、家长页和设置页从工程演示页面收敛为真机私测产品页面的分阶段计划。
+- `v0.2-local-testing-baseline.md`: 备案期间的本地测试基线，定义 deepseek-v4-flash、本地拍照 OCR 草稿、多题拆分、确认页和模型调用观测的当前收口边界。
+- `v0.2-education-ocr-agent-chain-plan.md`: v0.2 教育 OCR 能力路由与拍照判题整改方案，定义按 `PaperCut / PaperOcr / PaperStructed / OralCalculation / QuestionOcr / Formula` 自动路由的拍照判题链路、统一题目结构、异步复核、前端题框状态和评测指标。
+- `v0.2-education-ocr-routing-development-plan.md`: v0.2 教育 OCR 能力路由开发计划，按 raw OCR 对比、`EducationOcrRouter`、Provider 集成、`PaperStructed` 解析、API 合同、持久化、小程序叠框、异步复核、评测指标和配置文档拆分可执行任务。
 
 ## 后续文档规划
 

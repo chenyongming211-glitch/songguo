@@ -124,6 +124,14 @@ class AICallLog(BaseModel):
     provider: str
     model: str
     operation: str
+    agent: str = ""
+    submission_id: str = ""
+    item_id: str = ""
+    latency_ms: int = 0
+    confidence: float = 0.0
+    route_to: str = ""
+    failure_reason: str = ""
+    metadata: dict[str, Any] = Field(default_factory=dict)
     token_estimate: int = 0
     status: str = "success"
     created_at: datetime = Field(default_factory=utc_now)

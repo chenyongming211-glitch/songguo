@@ -22,6 +22,11 @@ MISCONCEPTION_LABELS = {
     "math_division_missing_remainder": "只写商，漏掉余数",
     "used_group_count_as_answer": "把题目中的组数当成答案",
     "copied_capacity": "只抄限载数量，没有理解问题",
+    "english_past_tense_missing": "没有根据时间线索调整动词形式",
+    "english_form_uncertain": "英语形式判断依据还不清楚",
+    "chinese_answer_missing": "语文答案缺失或无法对应题目",
+    "chinese_evidence_missing": "语文答案缺少文本依据或表达不完整",
+    "general_needs_evidence": "需要补充判断依据",
     "unknown_misconception": "还没有找到稳定错因",
 }
 

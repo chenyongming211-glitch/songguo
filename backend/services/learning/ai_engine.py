@@ -20,6 +20,7 @@ from songguo.backend.services.learning.practice_recommender import (
     PracticeItem,
     build_similar_practice_items,
 )
+from songguo.backend.services.learning.real_model_client import DEFAULT_DEEPSEEK_MODEL
 from songguo.backend.services.learning.teaching_assets import (
     DEFAULT_MATH_ASSET_LIBRARY,
     TeachingAssetLibrary,
@@ -605,7 +606,7 @@ class DeepTutorProvider:
 class DeepSeekProvider(DeepTutorProvider):
     provider_name = "deepseek"
 
-    def __init__(self, *, api_key: str | None = None, model_name: str = "deepseek-chat") -> None:
+    def __init__(self, *, api_key: str | None = None, model_name: str = DEFAULT_DEEPSEEK_MODEL) -> None:
         self.api_key = api_key or os.getenv("DEEPSEEK_API_KEY")
         self.model_name = model_name
         super().__init__()

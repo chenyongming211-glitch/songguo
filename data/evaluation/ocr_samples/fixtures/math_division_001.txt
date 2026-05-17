@@ -1,0 +1,2 @@
+QUESTION: 48 ÷ 6 = ?
+ANSWER: 8

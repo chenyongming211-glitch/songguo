@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import os
+from pathlib import Path
+import subprocess
+import sys
+
 from songguo.backend.services.learning.deeptutor_adapter import (
     DeepTutorLearningAdapter,
     TeachingDraft,
@@ -9,12 +14,35 @@ from songguo.backend.services.learning.math_structuring import (
     MathProblemStructuringGateway,
     ProblemAnalysis,
 )
+from songguo.backend.services.learning.intent_router import IntentRoutingDecision
 from songguo.backend.services.learning.service import LearningService
+from songguo.backend.services.learning.service import _build_basic_subject_rubric_evaluator_from_env
+from songguo.backend.services.learning.service import _build_intent_router_from_env
 from songguo.backend.services.learning.store import InMemoryLearningStore
 from songguo.backend.services.learning.llm_session_runner import LLMSessionRunner
 
 
 BUS_QUESTION = "学校组织三年级学生春游，一共有4个班，每班32人。如果每辆大巴车限坐45人，那么至少需要多少辆大巴车？"
+
+
+def test_global_learning_service_is_lazy_until_requested() -> None:
+    root = Path(__file__).resolve().parents[4]
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "from songguo.backend.services.learning import service; "
+                "print(service._GLOBAL_SERVICE is None, service._GLOBAL_STORE is None)"
+            ),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        env={**os.environ, "PYTHONPATH": str(root)},
+    )
+
+    assert result.stdout.strip() == "True True"
 
 
 def test_learning_service_uses_math_mistake_tutor_graph_runtime() -> None:
@@ -81,6 +109,143 @@ def test_create_learning_session_returns_first_hint_not_answer() -> None:
     assert logs[0].operation == "hint"
     assert logs[0].session_id == response.session_id
     assert logs[0].token_estimate > 0
+
+
+def test_build_intent_router_from_env_enables_llm_router(monkeypatch) -> None:
+    monkeypatch.setenv("SONGGUO_INTENT_ROUTER_PROVIDER", "llm")
+
+    router = _build_intent_router_from_env()
+
+    assert router is not None
+    assert getattr(router, "llm_client", None) is not None
+
+
+def test_build_basic_subject_rubric_from_env_enables_llm_evaluator(monkeypatch) -> None:
+    monkeypatch.setenv("SONGGUO_BASIC_RUBRIC_PROVIDER", "llm")
+
+    evaluator = _build_basic_subject_rubric_evaluator_from_env()
+
+    assert evaluator is not None
+    assert getattr(evaluator, "llm_client", None) is not None
+
+
+def test_basic_subject_submission_tutor_completes_after_child_revision() -> None:
+    store = InMemoryLearningStore()
+    service = LearningService(
+        store=store,
+        intent_router=_fake_intent_router(
+            IntentRoutingDecision(
+                subject="english",
+                task_type="grammar_fix",
+                user_intent="check_answer",
+                confidence=0.92,
+                evidence=["题干是英文时态填空"],
+                needs_clarification=False,
+                route_to="english_basic_tutor",
+            )
+        ),
+    )
+    created = service.create_submission(
+        child_id="child_001",
+        subject="auto",
+        grade=4,
+        source_type="text",
+        raw_text="Choose the correct tense: He ____ to school yesterday.\n孩子答案：go",
+    )
+    confirmed = service.confirm_submission(created.submission_id)
+
+    result = service.submit_submission_tutor_attempt(
+        confirmed.submission_id,
+        child_answer="I think the action happened yesterday, so I should use the past tense.",
+    )
+
+    assert result.attempt.correct is True
+    assert result.attempt.answer_unlocked is False
+    assert "答案" not in result.attempt.message
+    assert result.submission.status == "completed"
+    assert store.get_active_tutor_item(confirmed.submission_id) is None
+
+
+def test_basic_subject_submission_correct_english_completes_without_tutor() -> None:
+    store = InMemoryLearningStore()
+    service = LearningService(
+        store=store,
+        intent_router=_fake_intent_router(
+            IntentRoutingDecision(
+                subject="english",
+                task_type="grammar_fix",
+                user_intent="check_answer",
+                confidence=0.92,
+                evidence=["题干是英文时态填空"],
+                needs_clarification=False,
+                route_to="english_basic_tutor",
+            )
+        ),
+    )
+    created = service.create_submission(
+        child_id="child_001",
+        subject="auto",
+        grade=4,
+        source_type="text",
+        raw_text="Choose the correct tense: He ____ to school yesterday.\nanswer: went",
+    )
+
+    confirmed = service.confirm_submission(created.submission_id)
+    snapshot = store.get_submission_snapshot(confirmed.submission_id)
+
+    assert confirmed.status == "completed"
+    assert confirmed.correct_count == 1
+    assert confirmed.wrong_count == 0
+    assert snapshot.tutor_queue == []
+    assert snapshot.items[0].data_json["basic_subject_rubric"]["outcome"] == "correct"
+    assert store.list_wrong_questions("child_001") == []
+
+
+def test_submission_records_intent_router_and_rubric_model_observability() -> None:
+    store = InMemoryLearningStore()
+    service = LearningService(
+        store=store,
+        intent_router=_fake_intent_router(
+            IntentRoutingDecision(
+                subject="english",
+                task_type="grammar_fix",
+                user_intent="check_answer",
+                confidence=0.92,
+                evidence=["题干是英文时态填空"],
+                needs_clarification=False,
+                route_to="english_basic_tutor",
+                provider="deepseek",
+                model="deepseek-v4-flash",
+                source="llm",
+            )
+        ),
+    )
+
+    created = service.create_submission(
+        child_id="child_001",
+        subject="auto",
+        grade=4,
+        source_type="text",
+        raw_text="Choose the correct tense: He ____ to school yesterday.\n孩子答案：go",
+    )
+    service.confirm_submission(created.submission_id)
+
+    logs = store.list_ai_call_logs("child_001")
+    router_log = next(log for log in logs if log.operation == "intent_router.route")
+    rubric_log = next(log for log in logs if log.operation == "basic_subject_rubric.evaluate")
+    assert router_log.agent == "IntentRouterAgent"
+    assert router_log.provider == "deepseek"
+    assert router_log.model == "deepseek-v4-flash"
+    assert router_log.submission_id == created.submission_id
+    assert router_log.route_to == "english_basic_tutor"
+    assert router_log.confidence == 0.92
+    assert router_log.latency_ms >= 0
+    assert router_log.metadata["detected_subject"] == "english"
+    assert rubric_log.agent == "BasicSubjectRubricEvaluator"
+    assert rubric_log.submission_id == created.submission_id
+    assert rubric_log.item_id.startswith("item_")
+    assert rubric_log.confidence > 0
+    assert rubric_log.metadata["rubric_outcome"] == "wrong"
 
 
 def test_default_first_hint_uses_dynamic_times_five_strategy_without_hardcoding() -> None:
@@ -375,3 +540,11 @@ def test_learning_service_can_use_ai_engine_provider_runtime_kernel() -> None:
     assert attempt.next_key_point_id == "kp_capacity_check"
     assert "3辆" not in attempt.message
     assert store.list_ai_call_logs("child_001")[0].provider == "deterministic_fallback"
+
+
+def _fake_intent_router(decision: IntentRoutingDecision):
+    class FakeIntentRouter:
+        def route(self, context):
+            return decision
+
+    return FakeIntentRouter()

@@ -24,10 +24,10 @@ function buildSubjectCopy(state) {
   return {
     subject,
     sessionTitle: base.sessionTitle,
-    introSubtitle: hasSession ? "松鼠博士会根据孩子的回答继续追问。" : "先提交题目和孩子答案，系统记录后再陪练错题。",
+    introSubtitle: hasSession ? "松鼠博士会根据孩子的回答继续追问。" : "先提交题目和孩子答案，系统记录后再进入陪练。",
     statusNote: hasSession ? "学习中" : "开始做题",
     emptyTitle: "开始做题后，松鼠博士会先记录再陪练。",
-    emptyText: "正确题和错题都会沉淀到学习档案；错题会进入松鼠博士陪练。",
+    emptyText: "本次做题过程会沉淀到学习档案；需要陪练的题会进入松鼠博士陪练。",
     composerLabel: hasSession ? "写下孩子这一步的想法" : "提交题目和答案",
     inputPlaceholder: hasPhotoConfirmation
       ? "题目：...\n答案：..."

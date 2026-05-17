@@ -103,7 +103,7 @@ assert.equal(appConfig.window.navigationBarTitleText, "松果AI");
 assert.equal(chatListConfig.navigationBarTitleText, "松果AI");
 assert.ok(chatListMarkup.includes("松果AI"), "home hero should use Songguo AI brand");
 assert.ok(chatListMarkup.includes("松鼠博士"), "home hero should mention the tutor persona");
-assert.ok(chatListMarkup.includes("开始做题"), "home primary action should be a child-facing task entry");
+assert.ok(chatListMarkup.includes("拍照做题"), "home primary action should be a photo-first task entry");
 assert.ok(chatListMarkup.includes("我的练习记录"), "home history should be framed as practice records");
 assert.ok(chatListMarkup.includes('data-source-type="photo"'), "home should expose photo entry under one submission flow");
 assert.ok(chatListMarkup.includes('data-source-type="voice"'), "home should expose voice entry under one submission flow");
@@ -164,13 +164,23 @@ assert.ok(
 );
 assert.ok(submissionReviewMarkup.includes("确认题目"), "submission review should show a confirmation step");
 assert.ok(submissionReviewMarkup.includes("判题概览"), "submission review should show judged summary");
-assert.ok(submissionReviewMarkup.includes("开始讲错题"), "submission review should expose wrong-question tutoring entry");
+assert.ok(submissionReviewMarkup.includes("判断依据"), "submission review should show rubric feedback");
+assert.ok(submissionReviewMarkup.includes("开始陪练"), "submission review should expose tutoring entry");
 assert.ok(submissionReviewMarkup.includes("本次总结"), "submission review should show completion summary");
 assert.ok(
   submissionReviewScript.includes("createLearningSubmission") &&
     submissionReviewScript.includes("confirmLearningSubmission") &&
     submissionReviewScript.includes("startNextSubmissionTutorItem"),
   "submission review page should use submissions API as the main flow"
+);
+assert.ok(
+  submissionReviewScript.includes("rubricFeedback"),
+  "submission review should map backend rubric feedback into item view models"
+);
+assert.ok(
+  submissionReviewScript.includes('english_sentence_pattern: "英语语法题"') &&
+    submissionReviewScript.includes('chinese_reading_summary: "语文阅读题"'),
+  "submission review should label non-math routed tutor items by subject"
 );
 assert.ok(
   submissionReviewScript.includes("initialText") &&

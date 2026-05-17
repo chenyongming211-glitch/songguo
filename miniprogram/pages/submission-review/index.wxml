@@ -2,13 +2,35 @@
   <view class="submission-hero card">
     <text class="hero-label">松果AI · {{sourceLabel}}</text>
     <text class="hero-title">开始做题</text>
-    <text class="hero-subtitle">先提交题目和孩子答案，确认题目后查看判题概览，错题会进入松鼠博士陪练。</text>
+    <text class="hero-subtitle">先提交题目和孩子答案，确认题目后查看概览，需要陪练的题会进入松鼠博士陪练。</text>
   </view>
 
   <view wx:if="{{error}}" class="error-card">{{error}}</view>
 
+  <view wx:if="{{photoImagePath}}" class="photo-overlay-panel card">
+    <view class="photo-stage">
+      <image class="photo-image" src="{{photoImagePath}}" mode="widthFix" />
+      <block wx:for="{{overlayItems}}" wx:key="itemIndex">
+        <view class="overlay-item {{item.markerClass}}" style="{{item.bboxStyle}}">
+          <view class="overlay-marker">{{item.markerLabel}}</view>
+          <text class="overlay-caption">第 {{item.itemIndex}} 题 · {{item.markerText}}</text>
+        </view>
+      </block>
+    </view>
+  </view>
+
   <view wx:if="{{status === 'intake'}}" class="input-card card">
     <text class="input-label">题目和孩子答案</text>
+    <view wx:if="{{recognitionSummaryVisible}}" class="recognition-summary">
+      <view class="recognition-head">
+        <text class="recognition-title">{{recognitionSourceText}}</text>
+        <text wx:if="{{recognitionConfidenceText}}" class="recognition-confidence">置信度 {{recognitionConfidenceText}}</text>
+      </view>
+      <text class="recognition-text">
+        已识别 {{recognizedItemCountText}} 题。请先核对题目和孩子答案，必要时直接修改后再提交。
+      </text>
+      <text wx:if="{{qualityWarningText}}" class="quality-warning">{{qualityWarningText}}</text>
+    </view>
     <textarea
       class="text-area submission-input"
       auto-height="true"
@@ -32,7 +54,7 @@
   <view wx:else class="section-block">
     <view class="section-heading">
       <text class="section-title">确认题目</text>
-      <text class="section-text">请先看识别到的题目和孩子答案。确认后，系统会把正确题和错题都沉淀到学习档案。</text>
+      <text class="section-text">请先看识别到的题目和孩子答案。确认后，系统会把本次过程沉淀到学习档案。</text>
     </view>
 
     <view class="item-list">
@@ -43,7 +65,10 @@
         </view>
         <text class="item-question">{{item.question_text}}</text>
         <text class="item-answer">孩子答案：{{item.answerText}}</text>
+        <text wx:if="{{item.correctAnswerText}}" class="item-correct-answer">{{item.correctAnswerText}}</text>
         <text class="item-type">{{item.typeText}}</text>
+        <text wx:if="{{item.visualFallbackMessage}}" class="item-fallback">{{item.visualFallbackMessage}}</text>
+        <text wx:if="{{item.rubricFeedback}}" class="item-feedback">判断依据：{{item.rubricFeedback}}</text>
       </view>
     </view>
 
@@ -54,7 +79,7 @@
         loading="{{loading}}"
         disabled="{{loading}}"
       >
-        确认题目
+        确认并保存
       </button>
     </view>
   </view>
@@ -62,7 +87,8 @@
   <view wx:if="{{confirmed}}" class="summary-card card">
     <view class="section-heading">
       <text class="section-title">判题概览</text>
-      <text class="section-text">共 {{itemCount}} 题，正确 {{correctCount}} 题，错题 {{wrongCount}} 题。</text>
+      <text class="section-text">共 {{itemCount}} 题，已记录 {{correctCount}} 题，需陪练 {{wrongCount}} 题。</text>
+      <text wx:if="{{fallbackStatusText}}" class="section-text fallback-status">{{fallbackStatusText}}</text>
     </view>
     <view class="summary-grid">
       <view class="summary-stat">
@@ -83,11 +109,11 @@
       class="button-primary tutor-button"
       bindtap="handleStartWrongTutor"
     >
-      开始讲错题
+      开始陪练
     </button>
     <view wx:else class="done-panel">
       <text class="done-title">本次总结</text>
-      <text class="done-text">这次提交没有错题，系统已经记录本次掌握证据。</text>
+      <text class="done-text">这次提交没有需要陪练的题，系统已经记录本次学习证据。</text>
     </view>
   </view>
 </view>
