@@ -63,9 +63,9 @@ SONGGUO_ALIYUN_EDU_OCR_HYBRID_TEXT_FALLBACK=false
 SONGGUO_ALIYUN_EDU_OCR_HYBRID_TEXT_FALLBACK_MIN_ANSWER_RATE=0.6
 ```
 
-`SONGGUO_ALIYUN_EDU_OCR_SCENE` 可选 `auto`、`paper_cut`、`paper_ocr`、`question_ocr`、`oral_calculation`、`formula`、`paper_structed`。默认用 `auto`，由 `EducationOcrRouter` 先走 `PaperCut` 做整页多题切分；答案覆盖率低、题框不足或置信度偏低时最多追加 `SONGGUO_ALIYUN_EDU_OCR_MAX_SECONDARY_ACTIONS` 次二级 OCR 调用。口算专项可显式切到 `oral_calculation`。
+`SONGGUO_ALIYUN_EDU_OCR_SCENE` 可选 `auto`、`paper_cut`、`paper_ocr`、`question_ocr`、`oral_calculation`、`formula`、`paper_structed`。默认用 `auto`，由 `EducationOcrRouter` 先走 `PaperStructed` 做整页结构化识别；结构为空时回落到 `PaperCut`，答案覆盖率低或置信度偏低时最多追加 `SONGGUO_ALIYUN_EDU_OCR_MAX_SECONDARY_ACTIONS` 次 `PaperOcr` 文本补强。口算专项可显式切到 `oral_calculation`。
 
-需要“每题框上打勾/叉”时，保持 `SONGGUO_ALIYUN_EDU_OCR_SCENE=auto` 即可。当前策略尽量整图一次 OCR；只有质量信号不足时才追加一次 `paper_ocr`，用 `paper_cut` 的题框坐标承载 `paper_ocr` 抽出的答案。`SONGGUO_ALIYUN_EDU_OCR_FALLBACK_PROVIDER=none` 用来避免教育 OCR 失败时自动切到视觉模型增加延迟和费用；要临时兜底时再显式改成 `vision`。
+需要“每题框上打勾/叉”时，保持 `SONGGUO_ALIYUN_EDU_OCR_SCENE=auto` 即可。当前策略尽量整图一次结构化 OCR；只有质量信号不足时才追加一次 `paper_cut` 或 `paper_ocr`。`SONGGUO_ALIYUN_EDU_OCR_FALLBACK_PROVIDER=none` 用来避免教育 OCR 失败时自动切到视觉模型增加延迟和费用；要临时兜底时再显式改成 `vision`。
 
 教育 OCR 失败时可临时回退到阿里云 MaaS 视觉模型。默认先用 `qwen3.6-flash`，它支持视觉理解且适合私测阶段控制延迟和成本：
 

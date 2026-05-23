@@ -58,6 +58,7 @@ class OCRItemDraft(BaseModel):
     correct_answer: str = ""
     evidence_points: list[str] = Field(default_factory=list)
     quality_warnings: list[str] = Field(default_factory=list)
+    data_json: dict[str, Any] = Field(default_factory=dict)
 
 
 class OCRDraft(BaseModel):
@@ -314,9 +315,13 @@ class AliyunEduOCRProvider:
                     plan=plan,
                     draft=draft,
                 )
-                if secondary_actions and plan.primary_action == EducationOcrAction.PAPER_CUT:
+                if secondary_actions and plan.primary_action in {
+                    EducationOcrAction.PAPER_CUT,
+                    EducationOcrAction.PAPER_STRUCTED,
+                }:
                     if secondary_actions[0] == EducationOcrAction.ORAL_CALCULATION:
-                        return await self._recognize_paper_cut_oral_judgement(
+                        return await self._recognize_oral_judgement(
+                            primary_action=plan.primary_action,
                             config=config,
                             content=content,
                             filename=filename,
@@ -326,17 +331,41 @@ class AliyunEduOCRProvider:
                                 "secondary_actions": [action.value for action in secondary_actions],
                             },
                         )
-                    return await self._recognize_paper_cut_hybrid_text(
-                        cut_draft=draft,
-                        config=config,
-                        content=content,
-                        filename=filename,
-                        region_hints=region_hints or [],
-                        plan={
-                            **plan.model_dump(),
-                            "secondary_actions": [action.value for action in secondary_actions],
-                        },
-                    )
+                    if plan.primary_action == EducationOcrAction.PAPER_CUT:
+                        return await self._recognize_paper_cut_hybrid_text(
+                            cut_draft=draft,
+                            config=config,
+                            content=content,
+                            filename=filename,
+                            region_hints=region_hints or [],
+                            plan={
+                                **plan.model_dump(),
+                                "secondary_actions": [action.value for action in secondary_actions],
+                            },
+                        )
+                    if secondary_actions[0] == EducationOcrAction.PAPER_CUT:
+                        return await self._recognize_paper_structed_fallback_cut(
+                            config=config,
+                            content=content,
+                            filename=filename,
+                            region_hints=region_hints or [],
+                            plan={
+                                **plan.model_dump(),
+                                "secondary_actions": [action.value for action in secondary_actions],
+                            },
+                        )
+                    if secondary_actions[0] == EducationOcrAction.PAPER_OCR:
+                        return await self._recognize_paper_structed_hybrid_text(
+                            structed_draft=draft,
+                            config=config,
+                            content=content,
+                            filename=filename,
+                            region_hints=region_hints or [],
+                            plan={
+                                **plan.model_dump(),
+                                "secondary_actions": [action.value for action in secondary_actions],
+                            },
+                        )
                 if secondary_actions:
                     return _draft_with_ocr_plan(
                         draft,
@@ -362,6 +391,19 @@ class AliyunEduOCRProvider:
                     plan=fallback_plan,
                 )
                 if fallback_draft.items or fallback_draft.raw_text:
+                    if action == EducationOcrAction.PAPER_STRUCTED.value:
+                        return _draft_with_ocr_plan(
+                            fallback_draft.model_copy(
+                                update={
+                                    "model": f"{action}+{fallback_action}",
+                                    "source": _paper_structed_fallback_source(fallback_action),
+                                }
+                            ),
+                            {
+                                **plan.model_dump(),
+                                "secondary_actions": [fallback_action],
+                            },
+                        )
                     return fallback_draft
         except Exception as exc:
             last_error = exc
@@ -415,7 +457,7 @@ class AliyunEduOCRProvider:
         if max_actions <= 0:
             return []
         if (
-            plan.primary_action == EducationOcrAction.PAPER_CUT
+            plan.primary_action in {EducationOcrAction.PAPER_CUT, EducationOcrAction.PAPER_STRUCTED}
             and plan.reason.startswith("auto")
             and _draft_looks_like_oral_calculation_page(draft)
         ):
@@ -440,9 +482,10 @@ class AliyunEduOCRProvider:
             actions = []
         return actions[:max_actions]
 
-    async def _recognize_paper_cut_oral_judgement(
+    async def _recognize_oral_judgement(
         self,
         *,
+        primary_action: EducationOcrAction,
         config: Any,
         content: bytes,
         filename: str,
@@ -457,19 +500,105 @@ class AliyunEduOCRProvider:
             region_hints=region_hints,
         )
         oral_draft = _parse_aliyun_edu_ocr_response(payload, action="RecognizeEduOralCalculation")
+        model = f"{primary_action.value}+RecognizeEduOralCalculation"
+        source = (
+            "aliyun_edu_paper_structed_oral_judgement"
+            if primary_action == EducationOcrAction.PAPER_STRUCTED
+            else "aliyun_edu_paper_cut_oral_judgement"
+        )
         if not oral_draft.items:
             return OCRDraft(
                 provider="aliyun_edu_ocr",
-                model="RecognizeEduPaperCut+RecognizeEduOralCalculation",
-                source="aliyun_edu_paper_cut_oral_judgement",
+                model=model,
+                source=source,
                 data_json={"ocr_plan": plan},
             )
         return oral_draft.model_copy(
             update={
-                "model": "RecognizeEduPaperCut+RecognizeEduOralCalculation",
-                "source": "aliyun_edu_paper_cut_oral_judgement",
+                "model": model,
+                "source": source,
                 "data_json": {
                     **oral_draft.data_json,
+                    "ocr_plan": plan,
+                },
+            }
+        )
+
+    async def _recognize_paper_structed_fallback_cut(
+        self,
+        *,
+        config: Any,
+        content: bytes,
+        filename: str,
+        region_hints: list[ImageBBox],
+        plan: dict[str, Any],
+    ) -> OCRDraft:
+        payload = await self._call_edu_ocr(
+            config=config,
+            action="RecognizeEduPaperCut",
+            content=content,
+            filename=filename,
+            region_hints=region_hints,
+        )
+        cut_draft = _parse_aliyun_edu_ocr_response(payload, action="RecognizeEduPaperCut")
+        return cut_draft.model_copy(
+            update={
+                "model": "RecognizeEduPaperStructed+RecognizeEduPaperCut",
+                "source": "aliyun_edu_paper_structed_fallback_cut",
+                "data_json": {
+                    **cut_draft.data_json,
+                    "ocr_plan": plan,
+                },
+            }
+        )
+
+    async def _recognize_paper_structed_hybrid_text(
+        self,
+        *,
+        structed_draft: OCRDraft,
+        config: Any,
+        content: bytes,
+        filename: str,
+        region_hints: list[ImageBBox],
+        plan: dict[str, Any],
+    ) -> OCRDraft:
+        payload = await self._call_edu_ocr(
+            config=config,
+            action="RecognizeEduPaperOcr",
+            content=content,
+            filename=filename,
+            region_hints=region_hints,
+        )
+        text_draft = _parse_aliyun_edu_ocr_response(payload, action="RecognizeEduPaperOcr")
+        if not text_draft.items:
+            return structed_draft.model_copy(
+                update={
+                    "data_json": {
+                        **structed_draft.data_json,
+                        "ocr_plan": plan,
+                    },
+                }
+            )
+        merged_items = _merge_payload_items_with_raw_text_items(structed_draft.items, text_draft.items)
+        raw_text = text_draft.raw_text or structed_draft.raw_text
+        confidence = max(structed_draft.confidence, text_draft.confidence)
+        return structed_draft.model_copy(
+            update={
+                "raw_text": raw_text,
+                "question_text": merged_items[0].question_text if merged_items else structed_draft.question_text,
+                "child_answer": merged_items[0].child_answer if merged_items else structed_draft.child_answer,
+                "work_steps": merged_items[0].work_steps if merged_items else structed_draft.work_steps,
+                "confidence": confidence,
+                "needs_confirmation": (
+                    not merged_items
+                    or any(not item.question_text or not item.child_answer for item in merged_items)
+                    or confidence < 0.75
+                ),
+                "items": merged_items,
+                "model": "RecognizeEduPaperStructed+RecognizeEduPaperOcr",
+                "source": "aliyun_edu_paper_structed_hybrid_text",
+                "data_json": {
+                    **structed_draft.data_json,
                     "ocr_plan": plan,
                 },
             }
@@ -1470,6 +1599,12 @@ def _parse_aliyun_paper_structed(data: dict[str, Any], *, action: str) -> OCRDra
                     confidence=item_confidence,
                     bbox=_bbox_from_structed_subject(subject, data=data),
                     source_action=action,
+                    data_json={
+                        "paper_structed": _paper_structed_subject_metadata(
+                            part=part,
+                            subject=subject,
+                        )
+                    },
                 )
             )
     items = _sort_ocr_items_by_number_and_bbox(_with_default_bboxes(items))
@@ -1618,6 +1753,16 @@ def _first_answer_from_structed_subject(subject: dict[str, Any]) -> str:
     return _first_string(subject, "answer", "child_answer", "student_answer")
 
 
+def _paper_structed_subject_metadata(*, part: dict[str, Any], subject: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "part_title": _first_string(part, "part_title", "partTitle", "title", "name"),
+        "index": subject.get("index") or subject.get("subject_index") or subject.get("subjectIndex"),
+        "type": subject.get("type") or subject.get("question_type") or subject.get("questionType"),
+        "answer_list": subject.get("answer_list") or subject.get("answerList") or [],
+        "element_list": subject.get("element_list") or subject.get("elementList") or [],
+    }
+
+
 def _bbox_from_structed_subject(subject: dict[str, Any], *, data: dict[str, Any]) -> ImageBBox | None:
     bbox = _bbox_from_aliyun_payload(subject, data=data)
     if bbox is not None:
@@ -1692,8 +1837,8 @@ def _aliyun_edu_ocr_action(scene: str) -> str:
         "paper_structed": "RecognizeEduPaperStructed",
         "paper_structured": "RecognizeEduPaperStructed",
         "formula": "RecognizeEduFormula",
-        "auto": "RecognizeEduPaperCut",
-        "": "RecognizeEduPaperCut",
+        "auto": "RecognizeEduPaperStructed",
+        "": "RecognizeEduPaperStructed",
     }.get(normalized, "RecognizeEduPaperCut")
 
 
@@ -1712,6 +1857,11 @@ def _aliyun_edu_attempt_actions(primary_action: str) -> list[str]:
             "RecognizeEduQuestionOcr",
             "RecognizeEduPaperOcr",
         ],
+        "RecognizeEduPaperStructed": [
+            "RecognizeEduPaperStructed",
+            "RecognizeEduPaperCut",
+            "RecognizeEduPaperOcr",
+        ],
     }
     return fallback_map.get(primary_action, [primary_action])
 
@@ -1727,13 +1877,27 @@ def _ocr_plan_for_action(
     subject_hint: str,
 ) -> EducationOcrPlan:
     ocr_action = EducationOcrAction(action)
-    expected_output = "full_page_text" if ocr_action == EducationOcrAction.PAPER_OCR else "question_boxes"
+    expected_output = (
+        "full_page_text"
+        if ocr_action == EducationOcrAction.PAPER_OCR
+        else "structured_questions"
+        if ocr_action == EducationOcrAction.PAPER_STRUCTED
+        else "question_boxes"
+    )
     return EducationOcrPlan(
         primary_action=ocr_action,
         reason=reason,
         expected_output=expected_output,
         subject_hint=subject_hint,
     )
+
+
+def _paper_structed_fallback_source(action: str) -> str:
+    if action == "RecognizeEduPaperCut":
+        return "aliyun_edu_paper_structed_fallback_cut"
+    if action == "RecognizeEduPaperOcr":
+        return "aliyun_edu_paper_structed_fallback_text"
+    return "aliyun_edu_paper_structed_fallback"
 
 
 def _aliyun_source_for_action(action: str) -> str:

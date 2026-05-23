@@ -15,7 +15,7 @@ class EducationOcrAction(StrEnum):
 
 
 SCENE_TO_ACTION = {
-    "auto": EducationOcrAction.PAPER_CUT,
+    "auto": EducationOcrAction.PAPER_STRUCTED,
     "paper_cut": EducationOcrAction.PAPER_CUT,
     "cut": EducationOcrAction.PAPER_CUT,
     "paper_ocr": EducationOcrAction.PAPER_OCR,
@@ -70,7 +70,7 @@ class EducationOcrRouter:
         scene = _normalize_scene(str(getattr(self.config, "scene", "") or "auto"))
         action = SCENE_TO_ACTION.get(scene, EducationOcrAction.PAPER_CUT)
         reason = "configured_scene" if scene != "auto" else "auto_default_multi_question"
-        expected_output = "full_page_text" if action == EducationOcrAction.PAPER_OCR else "question_boxes"
+        expected_output = _expected_output_for_action(action)
         return EducationOcrPlan(
             primary_action=action,
             reason=reason,
@@ -79,18 +79,22 @@ class EducationOcrRouter:
         )
 
     def secondary_actions(self, signal: OcrQualitySignal) -> list[EducationOcrAction]:
+        if signal.primary_action == EducationOcrAction.PAPER_STRUCTED:
+            if signal.item_count <= 0:
+                return [EducationOcrAction.PAPER_CUT]
+            answer_rate = signal.answer_count / signal.item_count
+            min_rate = _min_answer_rate(self.config)
+            if answer_rate < min_rate and (signal.raw_text_length < 180 or signal.confidence < 0.7):
+                return [EducationOcrAction.PAPER_OCR]
+            if signal.raw_text_length < 20 and signal.confidence < 0.75:
+                return [EducationOcrAction.PAPER_OCR]
+            return []
         if signal.primary_action != EducationOcrAction.PAPER_CUT:
             return []
         if signal.item_count <= 0:
             return [EducationOcrAction.PAPER_OCR]
         answer_rate = signal.answer_count / signal.item_count
-        min_rate = max(
-            0.0,
-            min(
-                1.0,
-                float(getattr(self.config, "hybrid_text_fallback_min_answer_rate", 0.6) or 0.6),
-            ),
-        )
+        min_rate = _min_answer_rate(self.config)
         if answer_rate < min_rate and (signal.raw_text_length < 180 or signal.confidence < 0.7):
             return [EducationOcrAction.PAPER_OCR]
         if signal.raw_text_length < 20 and signal.confidence < 0.75:
@@ -100,3 +104,21 @@ class EducationOcrRouter:
 
 def _normalize_scene(scene: str) -> str:
     return "".join(ch if ch.isalnum() else "_" for ch in scene.strip().lower()).strip("_") or "auto"
+
+
+def _expected_output_for_action(action: EducationOcrAction) -> str:
+    if action == EducationOcrAction.PAPER_OCR:
+        return "full_page_text"
+    if action == EducationOcrAction.PAPER_STRUCTED:
+        return "structured_questions"
+    return "question_boxes"
+
+
+def _min_answer_rate(config: Any) -> float:
+    return max(
+        0.0,
+        min(
+            1.0,
+            float(getattr(config, "hybrid_text_fallback_min_answer_rate", 0.6) or 0.6),
+        ),
+    )

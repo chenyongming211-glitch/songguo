@@ -124,13 +124,13 @@ def test_aliyun_auto_runs_oral_calculation_for_oral_page_and_preserves_judgement
 
     async def fake_edu_ocr_func(**kwargs):
         actions.append(kwargs["action"])
-        if kwargs["action"] == "RecognizeEduPaperCut":
+        if kwargs["action"] == "RecognizeEduPaperStructed":
             return {
                 "Data": {
-                    "page_list": [
+                    "height": 1000,
+                    "width": 1000,
+                    "part_info": [
                         {
-                            "height": 1000,
-                            "width": 1000,
                             "subject_list": [
                                 {"text": "5×30=", "content_list_info": [{"pos": [{"x": 90, "y": 120}, {"x": 300, "y": 120}, {"x": 300, "y": 170}, {"x": 90, "y": 170}]}]},
                                 {"text": "22×40=", "content_list_info": [{"pos": [{"x": 90, "y": 210}, {"x": 300, "y": 210}, {"x": 300, "y": 260}, {"x": 90, "y": 260}]}]},
@@ -177,9 +177,9 @@ def test_aliyun_auto_runs_oral_calculation_for_oral_page_and_preserves_judgement
 
     draft = asyncio.run(provider.recognize_async(b"\xff\xd8\xff", filename="oral-page.jpg"))
 
-    assert actions == ["RecognizeEduPaperCut", "RecognizeEduOralCalculation"]
-    assert draft.model == "RecognizeEduPaperCut+RecognizeEduOralCalculation"
-    assert draft.source == "aliyun_edu_paper_cut_oral_judgement"
+    assert actions == ["RecognizeEduPaperStructed", "RecognizeEduOralCalculation"]
+    assert draft.model == "RecognizeEduPaperStructed+RecognizeEduOralCalculation"
+    assert draft.source == "aliyun_edu_paper_structed_oral_judgement"
     assert [item.ocr_judgement for item in draft.items] == ["correct", "correct", "wrong"]
     assert [item.correct_answer for item in draft.items] == ["150", "880", "40000"]
 
@@ -880,18 +880,18 @@ def test_aliyun_edu_ocr_provider_hybrid_fallback_merges_paper_ocr_answers_into_p
     assert draft.items[1].bbox == ImageBBox(x=100, y=220, width=700, height=80)
 
 
-def test_aliyun_edu_ocr_provider_records_ocr_plan_and_secondary_action() -> None:
+def test_aliyun_edu_ocr_provider_records_auto_paper_structed_plan_and_secondary_action() -> None:
     actions = []
 
     async def fake_edu_ocr_func(**kwargs):
         actions.append(kwargs["action"])
-        if kwargs["action"] == "RecognizeEduPaperCut":
+        if kwargs["action"] == "RecognizeEduPaperStructed":
             return {
                 "Data": {
-                    "page_list": [
+                    "height": 1000,
+                    "width": 1000,
+                    "part_info": [
                         {
-                            "height": 1000,
-                            "width": 1000,
                             "subject_list": [
                                 {
                                     "text": "1. 48÷6=?",
@@ -945,9 +945,9 @@ def test_aliyun_edu_ocr_provider_records_ocr_plan_and_secondary_action() -> None
 
     draft = asyncio.run(provider.recognize_async(b"\xff\xd8\xff", filename="homework.jpg"))
 
-    assert actions == ["RecognizeEduPaperCut", "RecognizeEduPaperOcr"]
-    assert draft.model == "RecognizeEduPaperCut+RecognizeEduPaperOcr"
-    assert draft.data_json["ocr_plan"]["primary_action"] == "RecognizeEduPaperCut"
+    assert actions == ["RecognizeEduPaperStructed", "RecognizeEduPaperOcr"]
+    assert draft.model == "RecognizeEduPaperStructed+RecognizeEduPaperOcr"
+    assert draft.data_json["ocr_plan"]["primary_action"] == "RecognizeEduPaperStructed"
     assert draft.data_json["ocr_plan"]["secondary_actions"] == ["RecognizeEduPaperOcr"]
 
 
@@ -1278,6 +1278,59 @@ def test_aliyun_edu_ocr_provider_falls_back_to_paper_ocr_when_paper_cut_is_empty
     assert draft.items[0].child_answer == "8"
 
 
+def test_aliyun_edu_ocr_provider_falls_back_to_paper_cut_when_auto_paper_structed_is_empty() -> None:
+    actions = []
+
+    async def fake_edu_ocr_func(**kwargs):
+        actions.append(kwargs["action"])
+        if kwargs["action"] == "RecognizeEduPaperStructed":
+            return {"Data": {"height": 820, "width": 1400, "part_info": []}}
+        return {
+            "Data": {
+                "page_list": [
+                    {
+                        "height": 820,
+                        "width": 1400,
+                        "subject_list": [
+                            {
+                                "text": "48÷6=? 孩子答案：8",
+                                "content_list_info": [
+                                    {
+                                        "pos": [
+                                            {"x": 100, "y": 120},
+                                            {"x": 500, "y": 120},
+                                            {"x": 500, "y": 220},
+                                            {"x": 100, "y": 220},
+                                        ]
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                ]
+            }
+        }
+
+    provider = AliyunEduOCRProvider(
+        config=AliyunEduOCRConfig(
+            access_key_id="ak-id",
+            access_key_secret="ak-secret",
+            scene="auto",
+        ),
+        client_func=fake_edu_ocr_func,
+    )
+
+    draft = asyncio.run(provider.recognize_async(b"\xff\xd8\xff", filename="single.jpg"))
+
+    assert actions == ["RecognizeEduPaperStructed", "RecognizeEduPaperCut"]
+    assert draft.model == "RecognizeEduPaperStructed+RecognizeEduPaperCut"
+    assert draft.data_json["ocr_plan"]["primary_action"] == "RecognizeEduPaperStructed"
+    assert draft.data_json["ocr_plan"]["secondary_actions"] == ["RecognizeEduPaperCut"]
+    assert draft.items[0].source_action == "RecognizeEduPaperCut"
+    assert draft.items[0].question_text == "48÷6=?"
+    assert draft.items[0].child_answer == "8"
+
+
 def test_aliyun_edu_ocr_provider_parses_paper_structed_subjects_and_answers() -> None:
     async def fake_edu_ocr_func(**_kwargs):
         return {
@@ -1329,6 +1382,9 @@ def test_aliyun_edu_ocr_provider_parses_paper_structed_subjects_and_answers() ->
     assert draft.items[0].question_text == "1. 21×50时，可以先算21×5=( )。"
     assert draft.items[0].child_answer == "105"
     assert draft.items[0].bbox == ImageBBox(x=100, y=100, width=600, height=80)
+    assert draft.items[0].data_json["paper_structed"]["type"] == 1
+    assert draft.items[0].data_json["paper_structed"]["answer_list"] == [{"text": "105"}]
+    assert draft.items[0].data_json["paper_structed"]["element_list"][0]["type"] == 0
     assert draft.items[0].quality_warnings == []
 
 
