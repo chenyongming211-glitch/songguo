@@ -202,6 +202,34 @@ def test_analyze_homework_photo_scanner_mode_preserves_a4_page_ratio() -> None:
     assert result.processed_y == 0
 
 
+def test_analyze_homework_photo_selects_portrait_orientation_candidate() -> None:
+    page = _blank(900, 1200)
+    cv2.rectangle(page, (70, 80), (830, 1120), (230, 230, 226), thickness=3)
+    for index, y in enumerate((230, 430, 630), start=1):
+        cv2.putText(page, f"{index}. 48 / 6 = ?", (120, y), cv2.FONT_HERSHEY_SIMPLEX, 1.1, (25, 25, 25), 3)
+        cv2.putText(page, "Answer: 8", (160, y + 70), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (35, 35, 35), 2)
+    rotated = cv2.rotate(page, cv2.ROTATE_90_CLOCKWISE)
+
+    result = analyze_homework_photo(_jpeg_bytes(rotated), filename="rotated-homework.jpg")
+
+    assert result.processed_height > result.processed_width
+    assert result.region_count >= 3
+    assert "orientation" in result.source
+
+
+def test_analyze_homework_photo_keeps_upright_portrait_candidate() -> None:
+    image_path = (
+        Path(__file__).resolve().parents[3]
+        / "zhaopian"
+        / "1564f6dac7898a540f0aec705b44721d.jpg"
+    )
+
+    result = analyze_homework_photo(image_path.read_bytes(), filename=image_path.name)
+
+    assert result.processed_height > result.processed_width
+    assert "orientation" not in result.source
+
+
 def test_analyze_homework_photo_keeps_natural_deskewed_preview_separate_from_ocr_image() -> None:
     page = _blank(900, 1200, (218, 218, 212))
     cv2.rectangle(page, (60, 70), (840, 1130), (205, 205, 198), thickness=3)

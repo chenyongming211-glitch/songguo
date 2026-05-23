@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 import math
 
 import cv2
@@ -38,6 +39,14 @@ class HomeworkPhotoAnalysis(BaseModel):
         return len(self.question_regions)
 
 
+@dataclass(frozen=True)
+class _PhotoCandidate:
+    image: np.ndarray
+    source: str
+    score: float
+    rotation_penalty: float = 0.0
+
+
 def analyze_homework_photo(content: bytes, *, filename: str = "upload.jpg") -> HomeworkPhotoAnalysis:
     image = _decode_image(content)
     if image is None:
@@ -50,13 +59,12 @@ def analyze_homework_photo(content: bytes, *, filename: str = "upload.jpg") -> H
         )
 
     original_height, original_width = image.shape[:2]
-    normalized = _normalize_orientation(image)
-    working, source = _document_view(normalized)
+    working, source = _best_document_candidate(image)
     working_height, working_width = working.shape[:2]
     gray = cv2.cvtColor(working, cv2.COLOR_BGR2GRAY)
     low, high = _percentiles(gray, 0.005, 0.995)
     quality_warnings = _quality_warnings(gray, width=working_width, height=working_height, low=low, high=high)
-    if source in {"opencv_document_perspective_v0.3", "opencv_document_rotation_v0.3"}:
+    if source.startswith(("opencv_document_perspective_v0.3", "opencv_document_rotation_v0.3")):
         quality_warnings = _append_unique(quality_warnings, ["photo_not_level"])
     ink = _ink_mask(gray, high=high)
     ink = _clean_ink_mask(ink)
@@ -128,6 +136,37 @@ def _normalize_orientation(image):
     return image
 
 
+def _best_document_candidate(image):
+    candidates = []
+    original_height, original_width = image.shape[:2]
+    for label, candidate_image, penalty in _orientation_candidates(image):
+        working, source = _document_view(candidate_image)
+        source_label = source if label == "original" else f"{source}_{label}"
+        candidate_height, candidate_width = working.shape[:2]
+        orientation_penalty = penalty
+        if label != "original" and original_height >= original_width and candidate_width > candidate_height:
+            orientation_penalty += 25.0
+        candidates.append(
+            _PhotoCandidate(
+                image=working,
+                source=source_label,
+                score=_document_candidate_score(working, source=source) - orientation_penalty,
+                rotation_penalty=orientation_penalty,
+            )
+        )
+    best = max(candidates, key=lambda candidate: candidate.score)
+    return best.image, best.source
+
+
+def _orientation_candidates(image):
+    return [
+        ("original", image, 0.0),
+        ("orientation_90_ccw", cv2.rotate(image, cv2.ROTATE_90_COUNTERCLOCKWISE), 0.8),
+        ("orientation_180", cv2.rotate(image, cv2.ROTATE_180), 1.1),
+        ("orientation_90_cw", cv2.rotate(image, cv2.ROTATE_90_CLOCKWISE), 0.8),
+    ]
+
+
 def _document_view(image):
     warped = _warp_document_if_possible(image)
     if warped is None:
@@ -136,6 +175,41 @@ def _document_view(image):
             return rotated, "opencv_document_rotation_v0.3"
         return image, "opencv_document_projection_v0.2"
     return warped, "opencv_document_perspective_v0.3"
+
+
+def _document_candidate_score(image, *, source: str) -> float:
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    _low, high = _percentiles(gray, 0.005, 0.995)
+    ink = _clean_ink_mask(_ink_mask(gray, high=high))
+    content_box = _content_box(ink, image_shape=gray.shape)
+    if content_box is None:
+        return -1000.0
+
+    height, width = gray.shape[:2]
+    if source == "opencv_document_perspective_v0.3":
+        crop_box = (0, 0, width, height)
+    else:
+        crop_box = _expand_box(content_box, image_shape=gray.shape, padding=max(24, min(gray.shape) // 40))
+    left, top, right, bottom = crop_box
+    crop_width = max(1, right - left)
+    crop_height = max(1, bottom - top)
+    crop_ink = ink[top:bottom, left:right]
+    regions = _detect_question_regions(crop_ink, image_size=(crop_width, crop_height))
+    ink_ratio = np.count_nonzero(crop_ink) / max(1, crop_ink.size)
+    content_ratio = (crop_width * crop_height) / max(1, width * height)
+    aspect = crop_height / max(1, crop_width)
+
+    score = 0.0
+    score += min(len(regions), 8) * 10.0
+    score += min(ink_ratio * 900.0, 18.0)
+    score += min(content_ratio * 10.0, 8.0)
+    if 0.55 <= aspect <= 1.85:
+        score += 8.0
+    if crop_height >= crop_width:
+        score += 3.0
+    if source == "opencv_document_perspective_v0.3":
+        score += 5.0
+    return score
 
 
 def _warp_document_if_possible(image):
