@@ -18,6 +18,7 @@ import cv2
 import numpy as np
 from pydantic import BaseModel, Field
 
+from songguo.backend.services.learning.answer_binding import bind_grouped_comparison_answers
 from songguo.backend.services.learning.input_safety import check_learning_input
 from songguo.backend.services.learning.models import utc_now
 from songguo.backend.services.learning.photo_preprocess import (
@@ -52,6 +53,10 @@ class OCRItemDraft(BaseModel):
     confidence: float = 0.0
     bbox: ImageBBox | None = None
     source_action: str = ""
+    ocr_judgement: str = ""
+    marking_source: str = ""
+    correct_answer: str = ""
+    evidence_points: list[str] = Field(default_factory=list)
     quality_warnings: list[str] = Field(default_factory=list)
 
 
@@ -64,6 +69,7 @@ class OCRDraft(BaseModel):
     needs_confirmation: bool = True
     items: list[OCRItemDraft] = Field(default_factory=list)
     detected_regions: list[ImageBBox] = Field(default_factory=list)
+    preview_image_path: str = ""
     quality_warnings: list[str] = Field(default_factory=list)
     quality_message: str = ""
     preprocess_source: str = ""
@@ -267,7 +273,7 @@ class VisionOCRProvider:
 class AliyunEduOCRProvider:
     """Aliyun OCR education-scenario provider behind an explicit opt-in seam."""
 
-    use_preprocessed_content = False
+    use_preprocessed_content = True
 
     def __init__(
         self,
@@ -309,6 +315,17 @@ class AliyunEduOCRProvider:
                     draft=draft,
                 )
                 if secondary_actions and plan.primary_action == EducationOcrAction.PAPER_CUT:
+                    if secondary_actions[0] == EducationOcrAction.ORAL_CALCULATION:
+                        return await self._recognize_paper_cut_oral_judgement(
+                            config=config,
+                            content=content,
+                            filename=filename,
+                            region_hints=region_hints or [],
+                            plan={
+                                **plan.model_dump(),
+                                "secondary_actions": [action.value for action in secondary_actions],
+                            },
+                        )
                     return await self._recognize_paper_cut_hybrid_text(
                         cut_draft=draft,
                         config=config,
@@ -397,6 +414,12 @@ class AliyunEduOCRProvider:
         max_actions = int(getattr(config, "max_secondary_actions", 1) or 0)
         if max_actions <= 0:
             return []
+        if (
+            plan.primary_action == EducationOcrAction.PAPER_CUT
+            and plan.reason.startswith("auto")
+            and _draft_looks_like_oral_calculation_page(draft)
+        ):
+            return [EducationOcrAction.ORAL_CALCULATION][:max_actions]
         if plan.reason.startswith("auto"):
             actions = router.secondary_actions(
                 OcrQualitySignal(
@@ -416,6 +439,41 @@ class AliyunEduOCRProvider:
         else:
             actions = []
         return actions[:max_actions]
+
+    async def _recognize_paper_cut_oral_judgement(
+        self,
+        *,
+        config: Any,
+        content: bytes,
+        filename: str,
+        region_hints: list[ImageBBox],
+        plan: dict[str, Any],
+    ) -> OCRDraft:
+        payload = await self._call_edu_ocr(
+            config=config,
+            action="RecognizeEduOralCalculation",
+            content=content,
+            filename=filename,
+            region_hints=region_hints,
+        )
+        oral_draft = _parse_aliyun_edu_ocr_response(payload, action="RecognizeEduOralCalculation")
+        if not oral_draft.items:
+            return OCRDraft(
+                provider="aliyun_edu_ocr",
+                model="RecognizeEduPaperCut+RecognizeEduOralCalculation",
+                source="aliyun_edu_paper_cut_oral_judgement",
+                data_json={"ocr_plan": plan},
+            )
+        return oral_draft.model_copy(
+            update={
+                "model": "RecognizeEduPaperCut+RecognizeEduOralCalculation",
+                "source": "aliyun_edu_paper_cut_oral_judgement",
+                "data_json": {
+                    **oral_draft.data_json,
+                    "ocr_plan": plan,
+                },
+            }
+        )
 
     async def _recognize_paper_cut_hybrid_text(
         self,
@@ -540,13 +598,14 @@ class PhotoReviewService:
     ) -> PhotoReview:
         image_path = self._save_artifact(filename, content)
         analysis = _analyze_upload(content, filename=filename, content_type=content_type)
+        preview_image_path = self._save_processed_artifact(filename, analysis)
         started_at = perf_counter()
         draft = self._recognize(
             _ocr_input_content(self.ocr_provider, original_content=content, analysis=analysis),
             filename=filename,
             region_hints=_processed_region_hints(analysis),
         )
-        draft = _attach_preprocess_analysis(draft, analysis)
+        draft = _attach_preprocess_analysis(draft, analysis, preview_image_path=preview_image_path)
         self._record_ocr_observation(
             child_id=child_id,
             image_path=image_path,
@@ -575,13 +634,14 @@ class PhotoReviewService:
     ) -> PhotoReview:
         image_path = self._save_artifact(filename, content)
         analysis = _analyze_upload(content, filename=filename, content_type=content_type)
+        preview_image_path = self._save_processed_artifact(filename, analysis)
         started_at = perf_counter()
         draft = await self._recognize_async(
             _ocr_input_content(self.ocr_provider, original_content=content, analysis=analysis),
             filename=filename,
             region_hints=_processed_region_hints(analysis),
         )
-        draft = _attach_preprocess_analysis(draft, analysis)
+        draft = _attach_preprocess_analysis(draft, analysis, preview_image_path=preview_image_path)
         self._record_ocr_observation(
             child_id=child_id,
             image_path=image_path,
@@ -608,13 +668,14 @@ class PhotoReviewService:
     ) -> tuple[str, OCRDraft]:
         image_path = self._save_artifact(filename, content)
         analysis = _analyze_upload(content, filename=filename, content_type=content_type)
+        preview_image_path = self._save_processed_artifact(filename, analysis)
         started_at = perf_counter()
         draft = await self._recognize_async(
             _ocr_input_content(self.ocr_provider, original_content=content, analysis=analysis),
             filename=filename,
             region_hints=_processed_region_hints(analysis),
         )
-        draft = _attach_preprocess_analysis(draft, analysis)
+        draft = _attach_preprocess_analysis(draft, analysis, preview_image_path=preview_image_path)
         self._record_ocr_observation(
             child_id=child_id,
             image_path=image_path,
@@ -757,6 +818,16 @@ class PhotoReviewService:
         target.write_bytes(content)
         return str(target)
 
+    def _save_processed_artifact(self, filename: str, analysis: HomeworkPhotoAnalysis) -> str:
+        preview_content = analysis.preview_content or analysis.processed_content
+        if not preview_content or analysis.source == "non_image_fixture":
+            return ""
+        safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", filename or "upload.jpg")
+        stem = safe_name.rsplit(".", 1)[0] if "." in safe_name else safe_name
+        target = self.artifact_root / f"{uuid4().hex}_{stem}_opencv_preview.jpg"
+        target.write_bytes(preview_content)
+        return str(target)
+
     def _grade_or_request_confirmation(
         self,
         *,
@@ -857,7 +928,12 @@ def _expected_answer_lazy(question_text: str) -> str | None:
     return _expected_answer(question_text)
 
 
-def _attach_preprocess_analysis(draft: OCRDraft, analysis: HomeworkPhotoAnalysis) -> OCRDraft:
+def _attach_preprocess_analysis(
+    draft: OCRDraft,
+    analysis: HomeworkPhotoAnalysis,
+    *,
+    preview_image_path: str = "",
+) -> OCRDraft:
     regions = [
         ImageBBox(
             x=region.x,
@@ -865,16 +941,14 @@ def _attach_preprocess_analysis(draft: OCRDraft, analysis: HomeworkPhotoAnalysis
             width=region.width,
             height=region.height,
         )
-        for region in analysis.question_regions
+        for region in (analysis.processed_question_regions or analysis.question_regions)
     ]
     items = list(draft.items)
     if items:
         mapped_items = []
         for index, item in enumerate(items):
             bbox = item.bbox
-            if bbox is not None:
-                bbox = _map_processed_bbox_to_original(bbox, analysis)
-            elif regions and len(regions) == len(items):
+            if bbox is None and regions and len(regions) == len(items):
                 bbox = regions[index]
             mapped_items.append(item.model_copy(update={"bbox": bbox}))
         items = mapped_items
@@ -893,6 +967,7 @@ def _attach_preprocess_analysis(draft: OCRDraft, analysis: HomeworkPhotoAnalysis
         update={
             "items": items,
             "detected_regions": regions,
+            "preview_image_path": preview_image_path,
             "quality_warnings": quality_warnings,
             "quality_message": quality_message,
             "preprocess_source": analysis.source,
@@ -916,8 +991,7 @@ def _ocr_input_content(
     original_content: bytes,
     analysis: HomeworkPhotoAnalysis,
 ) -> bytes:
-    if getattr(provider, "use_preprocessed_content", True) is False:
-        return original_content
+    _ = provider
     return analysis.processed_content or original_content
 
 
@@ -1239,18 +1313,27 @@ def _parse_aliyun_oral_calculation(data: dict[str, Any], *, action: str) -> OCRD
         raw_parts.append(title)
         question, answer = _split_oral_calculation_title(title)
         result = str(raw_item.get("result") or "").strip().lower()
+        ocr_judgement = _normalize_aliyun_oral_result(result)
+        correct_answer = _oral_correct_answer(raw_item, fallback=answer if ocr_judgement == "correct" else "")
+        evidence_points = [_oral_judgement_evidence(ocr_judgement)] if ocr_judgement else []
         confidence = 0.95 if result in {"right", "wrong"} else 0.65
         items.append(
             OCRItemDraft(
                 item_index=len(items) + 1,
                 question_text=question,
                 child_answer=answer,
+                work_steps=_first_string(raw_item, "process", "formula", "solution", "analysis"),
                 confidence=confidence,
                 bbox=_bbox_from_aliyun_position(
                     raw_item.get("pos") or raw_item.get("points"),
                     image_width=image_width,
                     image_height=image_height,
                 ),
+                source_action=action,
+                ocr_judgement=ocr_judgement,
+                marking_source="aliyun_edu_oral_calculation" if ocr_judgement else "",
+                correct_answer=correct_answer,
+                evidence_points=evidence_points,
             )
         )
     items = _with_default_bboxes(items)
@@ -1273,8 +1356,43 @@ def _parse_aliyun_oral_calculation(data: dict[str, Any], *, action: str) -> OCRD
     )
 
 
+def _normalize_aliyun_oral_result(result: str) -> str:
+    normalized = (result or "").strip().lower()
+    if normalized in {"right", "correct", "true", "1", "yes"}:
+        return "correct"
+    if normalized in {"wrong", "incorrect", "false", "0", "no"}:
+        return "wrong"
+    return ""
+
+
+def _oral_correct_answer(raw_item: dict[str, Any], *, fallback: str = "") -> str:
+    return (
+        _first_string(
+            raw_item,
+            "correct_answer",
+            "correctAnswer",
+            "right_answer",
+            "rightAnswer",
+            "standard_answer",
+            "standardAnswer",
+            "answer",
+        )
+        or fallback
+    )
+
+
+def _oral_judgement_evidence(judgement: str) -> str:
+    if judgement == "correct":
+        return "教育OCR口算判题：正确"
+    if judgement == "wrong":
+        return "教育OCR口算判题：错误"
+    return "教育OCR口算判题：待确认"
+
+
 def _parse_aliyun_paper_or_question(data: dict[str, Any], *, action: str) -> OCRDraft:
-    raw_text = str(data.get("content") or data.get("Content") or "").strip()
+    explicit_raw_text = str(data.get("content") or data.get("Content") or "").strip()
+    raw_text = explicit_raw_text
+    raw_text_from_page_list = False
     word_infos = _aliyun_words_info(data)
     if not raw_text and word_infos:
         raw_text = "\n".join(
@@ -1284,17 +1402,26 @@ def _parse_aliyun_paper_or_question(data: dict[str, Any], *, action: str) -> OCR
         )
     if not raw_text:
         raw_text = _aliyun_page_list_text(data)
+        raw_text_from_page_list = bool(raw_text)
     raw_text = _normalize_inline_answer_markers(raw_text)
-    items = _items_from_aliyun_question_lists(data)
-    raw_text_items = _items_from_text(raw_text) if raw_text else []
+    items = _items_from_aliyun_question_lists(data, action=action)
+    should_merge_raw_text = bool(explicit_raw_text) or not items or (raw_text_from_page_list and len(items) == 1)
+    raw_text_items = (
+        _items_from_text(raw_text, assign_default_bboxes=False)
+        if raw_text and should_merge_raw_text
+        else []
+    )
     if items and raw_text_items:
         items = _merge_payload_items_with_raw_text_items(items, raw_text_items)
     elif raw_text_items:
         items = raw_text_items
+    items = _assign_text_item_bboxes_from_word_infos(items, word_infos, data)
     if items and len(items) == 1 and items[0].bbox is None:
         bbox = _first_word_bbox(word_infos, data)
         if bbox is not None:
             items = [items[0].model_copy(update={"bbox": bbox})]
+    if action == "RecognizeEduPaperCut":
+        items = _sort_ocr_items_by_bbox_layout(items)
     items = _with_default_bboxes(items)
     confidence = _aliyun_words_confidence(word_infos)
     if confidence <= 0:
@@ -1362,6 +1489,120 @@ def _parse_aliyun_paper_structed(data: dict[str, Any], *, action: str) -> OCRDra
         provider="aliyun_edu_ocr",
         model=action,
         source=_aliyun_source_for_action(action),
+    )
+
+
+def _assign_text_item_bboxes_from_word_infos(
+    items: list[OCRItemDraft],
+    word_infos: list[dict[str, Any]],
+    data: dict[str, Any],
+) -> list[OCRItemDraft]:
+    if not items or not word_infos:
+        return items
+    records = _ocr_word_bbox_records(word_infos, data)
+    if not records:
+        return items
+
+    starts: list[int | None] = []
+    cursor = 0
+    for item in items:
+        start = _find_word_record_for_item(records, item, start_at=cursor)
+        starts.append(start)
+        if start is not None:
+            cursor = start + 1
+
+    ordered_starts = [start for start in starts if start is not None]
+    starts_are_monotonic = ordered_starts == sorted(ordered_starts)
+    mapped: list[OCRItemDraft] = []
+    for index, item in enumerate(items):
+        if item.bbox is not None:
+            mapped.append(item)
+            continue
+        start = starts[index]
+        if start is None:
+            mapped.append(item)
+            continue
+        if not starts_are_monotonic:
+            mapped.append(item.model_copy(update={"bbox": records[start]["bbox"]}))
+            continue
+        next_start = next(
+            (value for value in starts[index + 1 :] if value is not None and value > start),
+            None,
+        )
+        end = next_start if next_start is not None else len(records)
+        bbox = _union_bboxes([record["bbox"] for record in records[start:end]])
+        mapped.append(item.model_copy(update={"bbox": bbox or item.bbox}))
+    return mapped
+
+
+def _ocr_word_bbox_records(
+    word_infos: list[dict[str, Any]],
+    data: dict[str, Any],
+) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    for word in word_infos:
+        if not isinstance(word, dict):
+            continue
+        text = str(word.get("word") or word.get("text") or "").strip()
+        if not text:
+            continue
+        bbox = _bbox_from_aliyun_payload(word, data=data)
+        if bbox is None:
+            continue
+        records.append({"text": text, "compact": _compact_ocr_text_for_bbox_match(text), "bbox": bbox})
+    return records
+
+
+def _find_word_record_for_item(
+    records: list[dict[str, Any]],
+    item: OCRItemDraft,
+    *,
+    start_at: int,
+) -> int | None:
+    compact_question = _compact_ocr_text_for_bbox_match(item.question_text)
+    if not compact_question:
+        return None
+    probe = compact_question[: max(6, min(18, len(compact_question)))]
+    for index in range(start_at, len(records)):
+        if _word_record_matches_item(records[index]["compact"], compact_question, probe):
+            return index
+    for index in range(0, start_at):
+        if _word_record_matches_item(records[index]["compact"], compact_question, probe):
+            return index
+    return None
+
+
+def _word_record_matches_item(record_text: str, item_text: str, probe: str) -> bool:
+    if not record_text or not item_text:
+        return False
+    similarity = SequenceMatcher(None, record_text, item_text).ratio()
+    return (
+        item_text in record_text
+        or record_text in item_text
+        or probe in record_text
+        or record_text[: max(6, min(14, len(record_text)))] in item_text
+        or (len(item_text) >= 6 and similarity >= 0.62)
+    )
+
+
+def _compact_ocr_text_for_bbox_match(value: str) -> str:
+    text = (value or "").replace("＝", "=").replace("×", "x").replace("÷", "/")
+    return re.sub(r"[\s，。,.!?！？；;：:、\"'“”‘’（）()\[\]【】]+", "", text).lower()
+
+
+def _union_bboxes(bboxes: list[ImageBBox]) -> ImageBBox | None:
+    values = [bbox for bbox in bboxes if bbox is not None]
+    if not values:
+        return None
+    left = min(bbox.x for bbox in values)
+    top = min(bbox.y for bbox in values)
+    right = max(bbox.x + bbox.width for bbox in values)
+    bottom = max(bbox.y + bbox.height for bbox in values)
+    return ImageBBox(
+        x=left,
+        y=top,
+        width=max(1, min(1000 - left, right - left)),
+        height=max(1, min(1000 - top, bottom - top)),
     )
 
 
@@ -1524,6 +1765,32 @@ def _should_run_paper_cut_text_fallback(
     return answer_rate < min_answer_rate
 
 
+def _draft_looks_like_oral_calculation_page(draft: OCRDraft) -> bool:
+    items = list(draft.items or [])
+    if len(items) < 3:
+        return False
+    direct_count = sum(1 for item in items if _looks_like_oral_calculation_text(item.question_text))
+    if direct_count >= 3 and direct_count / len(items) >= 0.55:
+        return True
+    raw_text = draft.raw_text or _raw_text_from_items(items)
+    return direct_count >= 2 and any(token in raw_text for token in ("口算", "直接写得数", "直接写得数。"))
+
+
+def _looks_like_oral_calculation_text(text: str) -> bool:
+    value = (text or "").strip()
+    if not value:
+        return False
+    compact = re.sub(r"\s+", "", value)
+    if len(compact) > 36:
+        return False
+    return bool(
+        re.search(
+            r"\d+(?:\.\d+)?\s*[+\-＋－×xX*÷/]\s*\d+(?:\.\d+)?\s*[=＝]?\s*(?:\d+(?:\.\d+)?)?",
+            compact,
+        )
+    )
+
+
 def _aliyun_edu_error_draft(*, action: str, error: Exception) -> OCRDraft:
     warnings = ["ocr_provider_error"]
     code = _aliyun_edu_error_warning_code(error)
@@ -1580,7 +1847,7 @@ def _aliyun_words_info(data: dict[str, Any]) -> list[dict[str, Any]]:
     return words
 
 
-def _items_from_aliyun_question_lists(data: dict[str, Any]) -> list[OCRItemDraft]:
+def _items_from_aliyun_question_lists(data: dict[str, Any], *, action: str = "") -> list[OCRItemDraft]:
     items: list[OCRItemDraft] = []
     for raw_item in _iter_aliyun_question_items(data):
         question = _first_string(
@@ -1595,25 +1862,34 @@ def _items_from_aliyun_question_lists(data: dict[str, Any]) -> list[OCRItemDraft
         )
         if not question:
             continue
+        handwritten_tokens = _handwritten_aliyun_word_tokens(raw_item, data=data)
+        use_coordinate_answer = _should_use_coordinate_child_answer(handwritten_tokens)
+        question = _question_with_coordinate_bound_answers(question, raw_item, data=data)
+        if use_coordinate_answer:
+            question = _question_without_coordinate_answer_artifacts(question, handwritten_tokens)
+        child_answer = _first_string(
+            raw_item,
+            "child_answer",
+            "childAnswer",
+            "student_answer",
+            "studentAnswer",
+            "userAnswer",
+            "answer",
+        )
+        if not child_answer and use_coordinate_answer:
+            child_answer = _handwritten_answer_from_tokens(handwritten_tokens)
         items.append(
             OCRItemDraft(
                 item_index=len(items) + 1,
                 question_text=question,
-                child_answer=_first_string(
-                    raw_item,
-                    "child_answer",
-                    "childAnswer",
-                    "student_answer",
-                    "studentAnswer",
-                    "userAnswer",
-                    "answer",
-                ),
+                child_answer=child_answer,
                 work_steps=_first_string(raw_item, "work_steps", "workSteps", "solution", "analysis"),
                 confidence=_safe_aliyun_probability(raw_item.get("prob") or raw_item.get("confidence")),
                 bbox=_bbox_from_aliyun_payload(raw_item, data=data),
+                source_action=action,
             )
         )
-    return _sort_ocr_items_by_number_and_bbox(items)
+    return _sort_ocr_items_by_number_and_bbox(items, assign_default_bboxes=False)
 
 
 def _iter_aliyun_question_items(data: dict[str, Any]) -> list[dict[str, Any]]:
@@ -1657,6 +1933,284 @@ def _aliyun_page_list_text(data: dict[str, Any]) -> str:
         for subject in _aliyun_page_subject_items(data)
         if str(subject.get("text") or subject.get("content") or "").strip()
     )
+
+
+def _handwritten_answer_from_tokens(tokens: list[dict[str, Any]]) -> str:
+    values = [_normalize_handwritten_answer_token(str(token.get("text") or "")) for token in tokens]
+    return "；".join(value for value in values if value)
+
+
+def _should_use_coordinate_child_answer(tokens: list[dict[str, Any]]) -> bool:
+    if not tokens:
+        return False
+    if len(tokens) == 1:
+        return True
+    return all(_is_short_objective_answer_token(str(token.get("text") or "")) for token in tokens)
+
+
+def _question_with_coordinate_bound_answers(
+    question: str,
+    raw_item: dict[str, Any],
+    *,
+    data: dict[str, Any],
+) -> str:
+    answer_tokens = [
+        token
+        for token in _handwritten_aliyun_word_tokens(raw_item, data=data)
+        if _is_short_objective_answer_token(token["text"])
+    ]
+    if not answer_tokens:
+        return question
+    gaps = _ocr_gap_markers_from_words(question, raw_item, data=data)
+    if not gaps:
+        return question
+    assignments: dict[int, str] = {}
+    used_gaps: set[int] = set()
+    for token in answer_tokens:
+        if _answer_token_already_present_nearby(token, raw_item, data=data):
+            continue
+        best_index = _nearest_gap_index(token, gaps, used_gaps=used_gaps)
+        if best_index is None:
+            continue
+        normalized = _normalize_handwritten_answer_token(token["text"])
+        if not normalized:
+            continue
+        assignments[best_index] = normalized
+        used_gaps.add(best_index)
+    if not assignments:
+        return question
+    updated = question
+    for gap_index, answer in sorted(assignments.items(), key=lambda item: gaps[item[0]]["start"], reverse=True):
+        gap = gaps[gap_index]
+        replacement = _filled_gap_text(str(gap["text"]), answer)
+        updated = f"{updated[:gap['start']]}{replacement}{updated[gap['end']:]}"
+    return updated
+
+
+def _question_without_coordinate_answer_artifacts(
+    question: str,
+    tokens: list[dict[str, Any]],
+) -> str:
+    cleaned = question
+    for token in tokens:
+        answer = _normalize_handwritten_answer_token(str(token.get("text") or ""))
+        if not answer or _is_comparison_answer_token(answer):
+            continue
+        cleaned = _remove_bracketed_coordinate_answer(cleaned, answer)
+    return cleaned
+
+
+def _remove_bracketed_coordinate_answer(question: str, answer: str) -> str:
+    escaped = re.escape(answer)
+    cleaned = re.sub(
+        rf"[（(]\s*[^（）()]{{0,12}}{escaped}[^（）()]{{0,12}}\s*[）)]",
+        "( )",
+        question,
+        count=1,
+    )
+    if cleaned != question:
+        return cleaned
+    cleaned = re.sub(
+        rf"\s*[-－]\s*{escaped}\s*[）)](?=\s*[\u4e00-\u9fffA-Za-z])",
+        "( )",
+        question,
+        count=1,
+    )
+    if cleaned != question:
+        return cleaned
+    return re.sub(
+        rf"[（(]\s*[（(]\s*{escaped}(?=\s*(?:个|字|位|元|米|厘米|分|秒|时|千克|克|本|张|条|道|题|倍))",
+        "( )",
+        question,
+        count=1,
+    )
+
+
+def _answer_token_already_present_nearby(
+    token: dict[str, Any],
+    raw_item: dict[str, Any],
+    *,
+    data: dict[str, Any],
+) -> bool:
+    answer = _normalize_handwritten_answer_token(str(token.get("text") or ""))
+    if not answer:
+        return False
+    token_bbox = token.get("bbox")
+    if not isinstance(token_bbox, ImageBBox):
+        return False
+    words = raw_item.get("prism_wordsInfo") or raw_item.get("wordsInfo") or []
+    if not isinstance(words, list):
+        return False
+    token_center_x = token_bbox.x + token_bbox.width / 2
+    token_center_y = token_bbox.y + token_bbox.height / 2
+    for word in words:
+        if not isinstance(word, dict) or _safe_int(word.get("recClassify"), default=0) == 2:
+            continue
+        if answer not in str(word.get("word") or ""):
+            continue
+        bbox = _bbox_from_aliyun_word(word, raw_item=raw_item, data=data)
+        if bbox is None:
+            continue
+        word_center_x = bbox.x + bbox.width / 2
+        word_center_y = bbox.y + bbox.height / 2
+        if abs(token_center_y - word_center_y) <= 45:
+            if abs(token_center_x - word_center_x) <= max(80, bbox.width * 0.75):
+                return True
+    return False
+
+
+def _handwritten_aliyun_word_tokens(
+    raw_item: dict[str, Any],
+    *,
+    data: dict[str, Any],
+) -> list[dict[str, Any]]:
+    words = raw_item.get("prism_wordsInfo") or raw_item.get("wordsInfo") or []
+    if not isinstance(words, list):
+        return []
+    tokens: list[dict[str, Any]] = []
+    for word in words:
+        if not isinstance(word, dict):
+            continue
+        if _safe_int(word.get("recClassify"), default=0) != 2:
+            continue
+        text = _normalize_handwritten_answer_token(str(word.get("word") or ""))
+        if not text:
+            continue
+        bbox = _bbox_from_aliyun_word(word, raw_item=raw_item, data=data)
+        if bbox is None:
+            continue
+        tokens.append({"text": text, "bbox": bbox})
+    return tokens
+
+
+def _ocr_gap_markers_from_words(
+    question: str,
+    raw_item: dict[str, Any],
+    *,
+    data: dict[str, Any],
+) -> list[dict[str, Any]]:
+    words = raw_item.get("prism_wordsInfo") or raw_item.get("wordsInfo") or []
+    if not isinstance(words, list):
+        return []
+    gaps: list[dict[str, Any]] = []
+    cursor = 0
+    marker_re = re.compile(r"[（(]\s*[.．]?\s*[）)]|○")
+    for word in words:
+        if not isinstance(word, dict) or _safe_int(word.get("recClassify"), default=0) == 2:
+            continue
+        text = str(word.get("word") or "")
+        if not text:
+            continue
+        start = question.find(text, cursor)
+        if start < 0:
+            start = question.find(text)
+        if start < 0:
+            continue
+        cursor = start + len(text)
+        bbox = _bbox_from_aliyun_word(word, raw_item=raw_item, data=data)
+        if bbox is None:
+            continue
+        for match in marker_re.finditer(text):
+            marker = match.group(0)
+            if any(sign in marker for sign in "<>＝=≤≥√✓Vv×xX对错"):
+                continue
+            center = _inline_marker_center(bbox, text=text, start=match.start(), end=match.end())
+            gaps.append(
+                {
+                    "start": start + match.start(),
+                    "end": start + match.end(),
+                    "text": marker,
+                    "center_x": center[0],
+                    "center_y": center[1],
+                    "height": bbox.height,
+                }
+            )
+    return gaps
+
+
+def _nearest_gap_index(
+    token: dict[str, Any],
+    gaps: list[dict[str, Any]],
+    *,
+    used_gaps: set[int],
+) -> int | None:
+    bbox = token.get("bbox")
+    if not isinstance(bbox, ImageBBox):
+        return None
+    token_center_x = bbox.x + bbox.width / 2
+    token_center_y = bbox.y + bbox.height / 2
+    best_index: int | None = None
+    best_score = float("inf")
+    for index, gap in enumerate(gaps):
+        if index in used_gaps:
+            continue
+        row_threshold = max(45.0, float(gap["height"]) * 1.8, bbox.height * 1.8)
+        dy = abs(token_center_y - float(gap["center_y"]))
+        if dy > row_threshold:
+            continue
+        dx = abs(token_center_x - float(gap["center_x"]))
+        score = dx + dy * 2
+        if score < best_score:
+            best_index = index
+            best_score = score
+    return best_index
+
+
+def _inline_marker_center(bbox: ImageBBox, *, text: str, start: int, end: int) -> tuple[float, float]:
+    length = max(1, len(text))
+    marker_middle = (start + end) / 2
+    return (
+        bbox.x + bbox.width * (marker_middle / length),
+        bbox.y + bbox.height / 2,
+    )
+
+
+def _filled_gap_text(marker: str, answer: str) -> str:
+    if marker.startswith("（"):
+        return f"（{answer}）"
+    if marker == "○":
+        return f"({answer})"
+    return f"({answer})"
+
+
+def _bbox_from_aliyun_word(
+    word: dict[str, Any],
+    *,
+    raw_item: dict[str, Any],
+    data: dict[str, Any],
+) -> ImageBBox | None:
+    image_width = _safe_int(
+        raw_item.get("_image_width") or data.get("width") or data.get("orgWidth"),
+        default=1000,
+    )
+    image_height = _safe_int(
+        raw_item.get("_image_height") or data.get("height") or data.get("orgHeight"),
+        default=1000,
+    )
+    return _bbox_from_aliyun_position(
+        word.get("pos") or word.get("points"),
+        image_width=image_width,
+        image_height=image_height,
+    )
+
+
+def _normalize_handwritten_answer_token(value: str) -> str:
+    text = re.sub(r"\s+", "", value or "").strip()
+    text = text.strip("()（）")
+    if text in {"", ".", "．", "。", "，", ","}:
+        return ""
+    if text == "✓":
+        return "√"
+    return text
+
+
+def _is_short_objective_answer_token(value: str) -> bool:
+    text = _normalize_handwritten_answer_token(value)
+    return bool(re.fullmatch(r"(?:[<>＝=≤≥]|[A-Da-d]|[√✓Vv×xX对错])", text))
+
+
+def _is_comparison_answer_token(value: str) -> bool:
+    return bool(re.fullmatch(r"[<>＝=≤≥]", _normalize_handwritten_answer_token(value)))
 
 
 def _first_string(payload: dict[str, Any], *keys: str) -> str:
@@ -2029,13 +2583,30 @@ def _merge_payload_item_with_raw_item(
     update: dict[str, object] = {
         "confidence": max(payload_item.confidence, raw_item.confidence),
     }
-    if _should_prefer_raw_question(payload_item, raw_item):
+    if _should_preserve_payload_question_for_answer_binding(payload_item, raw_item):
+        pass
+    elif _should_prefer_raw_question(payload_item, raw_item):
         update["question_text"] = raw_item.question_text
     if not payload_item.child_answer and raw_item.child_answer:
         update["child_answer"] = raw_item.child_answer
     if not payload_item.work_steps and raw_item.work_steps:
         update["work_steps"] = raw_item.work_steps
     return payload_item.model_copy(update=update)
+
+
+def _should_preserve_payload_question_for_answer_binding(
+    payload_item: OCRItemDraft,
+    raw_item: OCRItemDraft,
+) -> bool:
+    if not raw_item.child_answer:
+        return False
+    if not re.search(r"[<>＝=≤≥]", payload_item.question_text or ""):
+        return False
+    bindings = bind_grouped_comparison_answers(
+        question_text=payload_item.question_text,
+        child_answer=raw_item.child_answer,
+    )
+    return len(bindings) >= 2 and any(binding.child_answer for binding in bindings)
 
 
 def _renumber_ocr_items(items: list[OCRItemDraft]) -> list[OCRItemDraft]:
@@ -2062,9 +2633,13 @@ def _compact_ocr_question_for_match(value: str) -> str:
     return re.sub(r"[\s，。,.!?！？；;：:、]+", "", text).lower()
 
 
-def _sort_ocr_items_by_number_and_bbox(items: list[OCRItemDraft]) -> list[OCRItemDraft]:
+def _sort_ocr_items_by_number_and_bbox(
+    items: list[OCRItemDraft],
+    *,
+    assign_default_bboxes: bool = True,
+) -> list[OCRItemDraft]:
     if len(items) < 2:
-        return _with_default_bboxes(items)
+        return _with_default_bboxes(items) if assign_default_bboxes else items
     numbered_count = sum(1 for item in items if _ocr_question_number(item.question_text) is not None)
     has_real_bboxes = sum(1 for item in items if item.bbox is not None) >= 2
     if numbered_count >= 2 and numbered_count / len(items) >= 0.6:
@@ -2083,10 +2658,37 @@ def _sort_ocr_items_by_number_and_bbox(items: list[OCRItemDraft]) -> list[OCRIte
         )
     else:
         sorted_items = list(enumerate(items))
-    return _with_default_bboxes([
+    renumbered_items = [
         item.model_copy(update={"item_index": index})
         for index, (_, item) in enumerate(sorted_items, start=1)
-    ])
+    ]
+    return _with_default_bboxes(renumbered_items) if assign_default_bboxes else renumbered_items
+
+
+def _sort_ocr_items_by_bbox_layout(items: list[OCRItemDraft]) -> list[OCRItemDraft]:
+    if len(items) < 2:
+        return items
+    if sum(1 for item in items if item.bbox is not None) < 2:
+        return [
+            item.model_copy(update={"item_index": index})
+            for index, item in enumerate(items, start=1)
+        ]
+    numbers = [_ocr_question_number(item.question_text) for item in items]
+    concrete_numbers = [number for number in numbers if number is not None]
+    if (
+        len(concrete_numbers) >= 2
+        and len(concrete_numbers) / len(items) >= 0.6
+        and len(set(concrete_numbers)) == len(concrete_numbers)
+    ):
+        return _sort_ocr_items_by_number_and_bbox(items, assign_default_bboxes=False)
+    sorted_items = sorted(
+        enumerate(items),
+        key=lambda pair: (*_ocr_bbox_top_left_sort_key(pair[1].bbox), pair[0]),
+    )
+    return [
+        item.model_copy(update={"item_index": index})
+        for index, (_, item) in enumerate(sorted_items, start=1)
+    ]
 
 
 def _ocr_question_number(question_text: str) -> int | None:
@@ -2099,6 +2701,12 @@ def _ocr_bbox_sort_key(bbox: ImageBBox | None) -> tuple[int, int, int]:
         return (10_000, 10_000, 10_000)
     row_bucket = max(0, bbox.y) // 70
     return (row_bucket, bbox.x, bbox.y)
+
+
+def _ocr_bbox_top_left_sort_key(bbox: ImageBBox | None) -> tuple[int, int]:
+    if bbox is None:
+        return (10_000, 10_000)
+    return (bbox.y, bbox.x)
 
 
 def _should_prefer_raw_question(payload_item: OCRItemDraft, raw_item: OCRItemDraft) -> bool:
@@ -2185,7 +2793,7 @@ def _build_raw_text(*, question_text: str, child_answer: str, work_steps: str) -
     )
 
 
-def _items_from_text(raw_text: str) -> list[OCRItemDraft]:
+def _items_from_text(raw_text: str, *, assign_default_bboxes: bool = True) -> list[OCRItemDraft]:
     try:
         draft = parse_text_submission(
             child_id="ocr_draft",
@@ -2195,7 +2803,7 @@ def _items_from_text(raw_text: str) -> list[OCRItemDraft]:
         )
     except ValueError:
         return []
-    return _with_default_bboxes([
+    items = [
         OCRItemDraft(
             item_index=item.item_index,
             question_text=item.question_text,
@@ -2204,7 +2812,8 @@ def _items_from_text(raw_text: str) -> list[OCRItemDraft]:
             confidence=item.confidence,
         )
         for item in draft.items
-    ])
+    ]
+    return _with_default_bboxes(items) if assign_default_bboxes else items
 
 
 def _items_from_payload(value: object) -> list[OCRItemDraft]:

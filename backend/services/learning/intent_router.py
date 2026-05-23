@@ -220,6 +220,8 @@ class RouterGuard:
             reasons.append("empty_input")
         if _has_obvious_english_math_conflict(normalized, raw_text):
             reasons.append("obvious_english_conflict")
+        if _has_obvious_chinese_subject_conflict(normalized, raw_text):
+            reasons.append("obvious_chinese_conflict")
 
         if not reasons and not normalized.needs_clarification:
             return normalized
@@ -266,19 +268,23 @@ def _fallback_agent_decision(context: IntentRouterContext) -> dict[str, Any]:
         for item in [context.raw_text, context.question_text, context.child_answer or ""]
         if item
     )
+    if _looks_english_homework(text):
+        task_type = "translation" if "翻译" in text or "translate" in text.lower() else "grammar_fix"
+        return _decision("english", task_type, "check_answer", 0.78, "题面包含英文句子或语法任务")
+    if _looks_strong_math_homework(text):
+        task_type = "calculation" if re.search(r"[=＝+\-×*÷/]", text) else "word_problem"
+        return _decision("math", task_type, "check_answer", 0.84, "题面包含明确数学教材、计算或数量关系任务")
+    if _looks_chinese_homework(text):
+        task_type = _chinese_task_type(text)
+        return _decision("chinese", task_type, "check_answer", 0.84, "题面包含语文阅读、字词或表达任务")
+    if _looks_math(text):
+        task_type = "calculation" if re.search(r"[=＝+\-×*÷/]", text) else "word_problem"
+        return _decision("math", task_type, "check_answer", 0.82, "题面包含明确算式、口算或数量关系")
+    if _looks_plain_chinese_homework(text):
+        return _decision("chinese", "reading_comprehension", "check_answer", 0.72, "题面为中文作业内容")
     if _looks_english(text):
         task_type = "translation" if "翻译" in text or "translate" in text.lower() else "grammar_fix"
         return _decision("english", task_type, "check_answer", 0.78, "题面包含英文句子或语法任务")
-    if _looks_chinese_homework(text):
-        task_type = "reading_comprehension"
-        if "造句" in text:
-            task_type = "sentence_rewrite"
-        elif "修改病句" in text:
-            task_type = "sentence_rewrite"
-        return _decision("chinese", task_type, "check_answer", 0.82, "题面包含语文阅读或表达任务")
-    if _looks_math(text):
-        task_type = "calculation" if re.search(r"[=＝+\-×*÷/]", text) else "word_problem"
-        return _decision("math", task_type, "check_answer", 0.78, "题面包含算式、数字或数量关系")
     return _decision("unknown", "unknown", "unknown", 0.3, "题面信息不足")
 
 
@@ -305,24 +311,243 @@ def _decision(
 
 
 def _looks_english(text: str) -> bool:
-    return bool(re.search(r"\b(?:choose|correct|tense|translate|grammar|sentence|word)\b", text, re.I)) or bool(
-        re.search(r"[A-Za-z]{3,}", text)
-    )
+    if re.search(
+        r"\b(?:choose\s+the\s+correct|correct\s+(?:tense|form|word)|fill\s+in\s+the\s+blank|"
+        r"translate|grammar|make\s+(?:a\s+)?sentence|read\s+and\s+(?:answer|choose)|"
+        r"circle\s+the\s+correct|write\s+(?:a\s+)?(?:word|sentence))\b",
+        text,
+        re.I,
+    ):
+        return True
+    if re.search(r"(?:英语|英文|英译汉|汉译英|用英语|翻译成英文|翻译成英语)", text):
+        return True
+
+    words = [word.lower() for word in re.findall(r"\b[A-Za-z]{2,}\b", text)]
+    if not words:
+        return False
+    common_words = {
+        "a",
+        "an",
+        "and",
+        "are",
+        "after",
+        "before",
+        "boy",
+        "can",
+        "cat",
+        "child",
+        "children",
+        "class",
+        "correct",
+        "day",
+        "did",
+        "do",
+        "does",
+        "dog",
+        "football",
+        "go",
+        "goes",
+        "good",
+        "grammar",
+        "had",
+        "has",
+        "have",
+        "he",
+        "her",
+        "his",
+        "in",
+        "is",
+        "it",
+        "like",
+        "make",
+        "my",
+        "of",
+        "on",
+        "play",
+        "plays",
+        "read",
+        "school",
+        "she",
+        "sentence",
+        "student",
+        "teacher",
+        "the",
+        "their",
+        "they",
+        "this",
+        "to",
+        "was",
+        "we",
+        "went",
+        "were",
+        "what",
+        "where",
+        "which",
+        "who",
+        "why",
+        "will",
+        "with",
+        "word",
+        "write",
+        "yesterday",
+        "you",
+    }
+    english_hits = sum(1 for word in words if word in common_words)
+    return english_hits >= 3
+
+
+def _looks_english_homework(text: str) -> bool:
+    lowered = text.lower()
+    if re.search(r"(?:英语|英文|英译汉|汉译英|用英语|翻译成英文|翻译成英语)", text):
+        return True
+    if re.search(
+        r"\b(?:listen|read|look|choose|write|tick|circle|classify|judge|"
+        r"breakfast|lunch|dinner|favourite|favorite|homework|noodles|bread|juice|"
+        r"would\s+you\s+like|what\s+(?:do|would)\s+you\s+like)\b",
+        lowered,
+    ) and _english_signal_count(text) >= 3:
+        return True
+    if re.search(
+        r"\b(?:read\s*[,，]\s*choose\s+and\s+write|read\s+and\s+(?:tick|choose|write)|"
+        r"listen\s+and\s+(?:circle|choose)|look\s*[,，]\s*read\s+and\s+choose)\b",
+        lowered,
+    ):
+        return True
+    return _looks_english(text) and _english_signal_count(text) >= 4
 
 
 def _looks_chinese_homework(text: str) -> bool:
-    return any(
-        token in text
-        for token in ("阅读短文", "造句", "修改病句", "中心思想", "解释词语", "作文", "按要求写句子")
-    ) or any(
-        token in text
-        for token in ("为什么", "为何", "原因", "概括", "主要内容", "中心思想")
+    strong_tokens = (
+        "阅读短文",
+        "看拼音",
+        "写词语",
+        "读一读",
+        "选出正确的读音",
+        "正确的读音",
+        "读音或字形",
+        "字形",
+        "加点字词",
+        "解释词语",
+        "解释有误",
+        "四字词语",
+        "补全",
+        "造句",
+        "修改病句",
+        "修改符号",
+        "按要求写句子",
+        "作文",
+        "中心思想",
+        "主要内容",
+        "主要意思",
+        "概括",
+        "最为恰当",
+        "哪一项",
+        "寓言故事",
+        "分享会",
+        "表示先后顺序",
+        "先后顺序",
+        "传统文化",
+        "雅人四好",
+        "选段",
+        "画线",
+        "画“",
+        "理解最准确",
+        "短文内容",
+        "根据短文",
+        "赵州桥",
+        "菜农",
+        "学者",
+    )
+    if any(token in text for token in strong_tokens):
+        return True
+    return any(token in text for token in ("为什么", "为何", "原因")) and any(
+        token in text for token in ("因为", "所以", "作者", "短文", "句子", "回答")
+    )
+
+
+def _chinese_task_type(text: str) -> str:
+    if any(token in text for token in ("看拼音", "写词语", "读音或字形", "正确的读音", "四字词语", "补全")):
+        return "sentence_rewrite"
+    if any(token in text for token in ("阅读短文", "主要内容", "主要意思", "概括", "寓言故事", "最为恰当", "哪一项")):
+        return "reading_comprehension"
+    if any(token in text for token in ("造句", "修改病句", "修改符号", "按要求写句子", "写词语", "补全")):
+        return "sentence_rewrite"
+    if any(token in text for token in ("作文", "片段", "表达", "流程", "表示先后顺序")):
+        return "composition_fragment"
+    return "reading_comprehension"
+
+
+def _looks_plain_chinese_homework(text: str) -> bool:
+    if _english_signal_count(text) >= 4:
+        return False
+    cjk_count = len(re.findall(r"[\u4e00-\u9fff]", text))
+    return cjk_count >= 12
+
+
+def _english_signal_count(text: str) -> int:
+    common_words = {
+        "breakfast",
+        "bread",
+        "choose",
+        "circle",
+        "classify",
+        "correct",
+        "day",
+        "dinner",
+        "do",
+        "does",
+        "favourite",
+        "favorite",
+        "food",
+        "good",
+        "homework",
+        "juice",
+        "like",
+        "listen",
+        "look",
+        "lunch",
+        "milk",
+        "my",
+        "noodles",
+        "read",
+        "sentence",
+        "tick",
+        "water",
+        "what",
+        "would",
+        "write",
+        "you",
+    }
+    words = [word.lower() for word in re.findall(r"\b[A-Za-z]{2,}\b", text)]
+    return sum(1 for word in words if word in common_words)
+
+
+def _looks_strong_math_homework(text: str) -> bool:
+    if re.search(
+        r"(?:数学(?:三|四|五|六)?年级|直接写得数|口算|脱式计算|竖式计算|列式计算|"
+        r"用竖式计算|计算下面|算一算|算式|比较大小|填上[“\"]?>[”\"]?|"
+        r"在[○Oo圈里]*填上[“\"]?>|时记时法|年、月、日|年月日|题数[:：]|"
+        r"乘法|除法|加法|减法|乘数|积的|积是|求商|求积)",
+        text,
+    ):
+        return True
+    return bool(
+        re.search(r"\d+\s*[=＝+\-×xX*÷/]\s*\d+", text)
+        and re.search(r"(?:一共|多少|几|平均|买了|卖出|千克|元|米|厘米|倍|盒|套|支|人|天|时|分)", text)
     )
 
 
 def _looks_math(text: str) -> bool:
-    return bool(re.search(r"\d+.*(?:几|多少|求|计算|平均|一共|剩|米|厘米|元|辆)", text)) or bool(
-        re.search(r"\d+\s*[=＝+\-×*÷/]\s*\d*", text)
+    if re.search(
+        r"(?:口算|脱式计算|竖式计算|列式计算|计算下面|算一算|算式|求商|求积|乘法|除法|加法|减法|"
+        r"两位数乘|乘数|积的|积是|平均每|一共买|找规律计算)",
+        text,
+    ):
+        return True
+    return bool(
+        re.search(r"\d+.{0,30}(?:几|多少|求|平均|一共|还剩|剩下|买了|卖出|米|厘米|元|辆|千克)", text)
+    ) or bool(
+        re.search(r"\d+\s*(?:[=＝+\-×*÷/]|＞|<|>|＜)\s*\d*", text)
     )
 
 
@@ -330,3 +555,13 @@ def _has_obvious_english_math_conflict(decision: IntentRoutingDecision, raw_text
     if decision.subject != "math":
         return False
     return _looks_english(raw_text) and not _looks_math(raw_text)
+
+
+def _has_obvious_chinese_subject_conflict(decision: IntentRoutingDecision, raw_text: str) -> bool:
+    if decision.subject not in {"english", "math"}:
+        return False
+    if not _looks_chinese_homework(raw_text):
+        return False
+    if decision.subject == "english":
+        return not _looks_english(raw_text)
+    return not _looks_math(raw_text)

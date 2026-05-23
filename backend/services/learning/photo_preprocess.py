@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+import math
+
 import cv2
 import numpy as np
 from pydantic import BaseModel, Field
+
+
+A4_ASPECT_RATIO = math.sqrt(2.0)
 
 
 class ImageRegion(BaseModel):
@@ -20,6 +25,7 @@ class HomeworkPhotoAnalysis(BaseModel):
     processed_width: int = 0
     processed_height: int = 0
     processed_content: bytes = b""
+    preview_content: bytes = b""
     mime_type: str = "image/jpeg"
     question_regions: list[ImageRegion] = Field(default_factory=list)
     processed_question_regions: list[ImageRegion] = Field(default_factory=list)
@@ -45,9 +51,13 @@ def analyze_homework_photo(content: bytes, *, filename: str = "upload.jpg") -> H
 
     original_height, original_width = image.shape[:2]
     normalized = _normalize_orientation(image)
-    gray = cv2.cvtColor(normalized, cv2.COLOR_BGR2GRAY)
+    working, source = _document_view(normalized)
+    working_height, working_width = working.shape[:2]
+    gray = cv2.cvtColor(working, cv2.COLOR_BGR2GRAY)
     low, high = _percentiles(gray, 0.005, 0.995)
-    quality_warnings = _quality_warnings(gray, width=original_width, height=original_height, low=low, high=high)
+    quality_warnings = _quality_warnings(gray, width=working_width, height=working_height, low=low, high=high)
+    if source in {"opencv_document_perspective_v0.3", "opencv_document_rotation_v0.3"}:
+        quality_warnings = _append_unique(quality_warnings, ["photo_not_level"])
     ink = _ink_mask(gray, high=high)
     ink = _clean_ink_mask(ink)
     content_box = _content_box(ink, image_shape=gray.shape)
@@ -59,27 +69,30 @@ def analyze_homework_photo(content: bytes, *, filename: str = "upload.jpg") -> H
             original_height=original_height,
             processed_x=0,
             processed_y=0,
-            processed_width=original_width,
-            processed_height=original_height,
-            processed_content=_encode_jpeg(_enhance_for_ocr(normalized)),
+            processed_width=working_width,
+            processed_height=working_height,
+            processed_content=_encode_jpeg(_enhance_for_ocr(working)),
+            preview_content=_encode_jpeg(working),
             quality_warnings=warnings,
             quality_message=_quality_message(warnings),
             source="opencv_no_content_v0.2",
         )
 
-    crop_box = _expand_box(content_box, image_shape=gray.shape, padding=max(24, min(gray.shape) // 40))
+    if source == "opencv_document_perspective_v0.3":
+        crop_box = (0, 0, working_width, working_height)
+    else:
+        crop_box = _expand_box(content_box, image_shape=gray.shape, padding=max(24, min(gray.shape) // 40))
     left, top, right, bottom = crop_box
-    cropped = normalized[top:bottom, left:right]
+    cropped = working[top:bottom, left:right]
     crop_ink = ink[top:bottom, left:right]
-    question_regions = _detect_question_regions(ink, image_size=(original_width, original_height))
-    processed_regions = _regions_to_processed(
-        question_regions,
-        crop_box=crop_box,
-        original_size=(original_width, original_height),
-        processed_size=(max(1, right - left), max(1, bottom - top)),
+    processed_width = max(1, right - left)
+    processed_height = max(1, bottom - top)
+    processed_regions = _detect_question_regions(
+        crop_ink,
+        image_size=(processed_width, processed_height),
     )
 
-    if not question_regions and "retake_required" not in quality_warnings:
+    if not processed_regions and "retake_required" not in quality_warnings:
         quality_warnings = _append_unique(quality_warnings, ["no_homework_content"])
     if not _has_meaningful_ink(crop_ink):
         quality_warnings = _append_unique(quality_warnings, ["no_homework_content"])
@@ -89,14 +102,15 @@ def analyze_homework_photo(content: bytes, *, filename: str = "upload.jpg") -> H
         original_height=original_height,
         processed_x=left,
         processed_y=top,
-        processed_width=max(1, right - left),
-        processed_height=max(1, bottom - top),
+        processed_width=processed_width,
+        processed_height=processed_height,
         processed_content=_encode_jpeg(_enhance_for_ocr(cropped)),
-        question_regions=question_regions,
+        preview_content=_encode_jpeg(cropped),
+        question_regions=processed_regions,
         processed_question_regions=processed_regions,
         quality_warnings=quality_warnings,
         quality_message=_quality_message(quality_warnings),
-        source="opencv_document_projection_v0.2",
+        source=source,
     )
 
 
@@ -112,6 +126,207 @@ def _decode_image(content: bytes):
 
 def _normalize_orientation(image):
     return image
+
+
+def _document_view(image):
+    warped = _warp_document_if_possible(image)
+    if warped is None:
+        rotated = _rotate_document_if_needed(image)
+        if rotated is not None:
+            return rotated, "opencv_document_rotation_v0.3"
+        return image, "opencv_document_projection_v0.2"
+    return warped, "opencv_document_perspective_v0.3"
+
+
+def _warp_document_if_possible(image):
+    quad = _find_document_quad(image)
+    if quad is None:
+        return None
+    warped = _four_point_warp(image, quad)
+    if warped is None or warped.size == 0:
+        return None
+    height, width = warped.shape[:2]
+    if min(width, height) < 240:
+        return None
+    return warped
+
+
+def _rotate_document_if_needed(image):
+    angle = _estimate_document_skew_angle(image)
+    if angle is None:
+        return None
+    if abs(angle) < 1.1 or abs(angle) > 25.0:
+        return None
+    return _rotate_bound(image, -angle)
+
+
+def _estimate_document_skew_angle(image) -> float | None:
+    height, width = image.shape[:2]
+    if min(width, height) < 240:
+        return None
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+    edges = cv2.Canny(blurred, 40, 130)
+    threshold = max(80, min(width, height) // 6)
+    min_line_length = max(120, min(width, height) // 5)
+    lines = cv2.HoughLinesP(
+        edges,
+        1,
+        np.pi / 180,
+        threshold=threshold,
+        minLineLength=min_line_length,
+        maxLineGap=25,
+    )
+    if lines is None:
+        return None
+
+    angles: list[float] = []
+    weights: list[float] = []
+    for x1, y1, x2, y2 in lines[:, 0, :]:
+        dx = int(x2) - int(x1)
+        dy = int(y2) - int(y1)
+        length = math.hypot(dx, dy)
+        if length < min(width, height) * 0.12:
+            continue
+        angle = math.degrees(math.atan2(dy, dx))
+        while angle <= -90.0:
+            angle += 180.0
+        while angle > 90.0:
+            angle -= 180.0
+        if abs(angle) <= 30.0:
+            normalized = angle
+        elif abs(abs(angle) - 90.0) <= 30.0:
+            normalized = angle - (90.0 if angle > 0 else -90.0)
+        else:
+            continue
+        angles.append(float(normalized))
+        weights.append(float(length))
+
+    if len(angles) < 4:
+        return None
+    return _weighted_median(angles, weights)
+
+
+def _weighted_median(values: list[float], weights: list[float]) -> float:
+    pairs = sorted(zip(values, weights), key=lambda pair: pair[0])
+    total = sum(weight for _value, weight in pairs)
+    midpoint = total / 2.0
+    running = 0.0
+    for value, weight in pairs:
+        running += weight
+        if running >= midpoint:
+            return value
+    return pairs[-1][0]
+
+
+def _rotate_bound(image, angle: float):
+    height, width = image.shape[:2]
+    center = (width / 2.0, height / 2.0)
+    matrix = cv2.getRotationMatrix2D(center, angle, 1.0)
+    cos = abs(matrix[0, 0])
+    sin = abs(matrix[0, 1])
+    new_width = int((height * sin) + (width * cos))
+    new_height = int((height * cos) + (width * sin))
+    matrix[0, 2] += (new_width / 2.0) - center[0]
+    matrix[1, 2] += (new_height / 2.0) - center[1]
+    return cv2.warpAffine(
+        image,
+        matrix,
+        (new_width, new_height),
+        flags=cv2.INTER_CUBIC,
+        borderMode=cv2.BORDER_REPLICATE,
+    )
+
+
+def _find_document_quad(image):
+    height, width = image.shape[:2]
+    if height <= 0 or width <= 0:
+        return None
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+    edges = cv2.Canny(blurred, 40, 130)
+    edges = cv2.dilate(edges, np.ones((5, 5), np.uint8), iterations=1)
+    edges = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, np.ones((11, 11), np.uint8), iterations=2)
+    contours, _hierarchy = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not contours:
+        return None
+
+    image_area = float(width * height)
+    best_quad = None
+    best_area = 0.0
+    for contour in sorted(contours, key=cv2.contourArea, reverse=True)[:10]:
+        area = float(cv2.contourArea(contour))
+        if area < image_area * 0.18 or area > image_area * 0.98:
+            continue
+        perimeter = cv2.arcLength(contour, True)
+        for epsilon_ratio in (0.015, 0.02, 0.03, 0.045):
+            approx = cv2.approxPolyDP(contour, epsilon_ratio * perimeter, True)
+            if len(approx) != 4 or not cv2.isContourConvex(approx):
+                continue
+            quad = approx.reshape(4, 2).astype("float32")
+            if not _valid_document_quad(quad, image_area=image_area):
+                continue
+            if area > best_area:
+                best_quad = quad
+                best_area = area
+            break
+    return best_quad
+
+
+def _valid_document_quad(quad, *, image_area: float) -> bool:
+    area = abs(float(cv2.contourArea(quad.astype("float32"))))
+    if area < image_area * 0.18:
+        return False
+    ordered = _order_quad_points(quad)
+    top_width = np.linalg.norm(ordered[1] - ordered[0])
+    bottom_width = np.linalg.norm(ordered[2] - ordered[3])
+    left_height = np.linalg.norm(ordered[3] - ordered[0])
+    right_height = np.linalg.norm(ordered[2] - ordered[1])
+    min_side = min(top_width, bottom_width, left_height, right_height)
+    if min_side < 120:
+        return False
+    aspect = max(top_width, bottom_width) / max(1.0, max(left_height, right_height))
+    return 0.35 <= aspect <= 1.35
+
+
+def _order_quad_points(points):
+    rect = np.zeros((4, 2), dtype="float32")
+    sums = points.sum(axis=1)
+    diffs = np.diff(points, axis=1).reshape(-1)
+    rect[0] = points[np.argmin(sums)]
+    rect[2] = points[np.argmax(sums)]
+    rect[1] = points[np.argmin(diffs)]
+    rect[3] = points[np.argmax(diffs)]
+    return rect
+
+
+def _four_point_warp(image, points):
+    rect = _order_quad_points(points)
+    top_left, top_right, bottom_right, bottom_left = rect
+    width_a = np.linalg.norm(bottom_right - bottom_left)
+    width_b = np.linalg.norm(top_right - top_left)
+    height_a = np.linalg.norm(top_right - bottom_right)
+    height_b = np.linalg.norm(top_left - bottom_left)
+    measured_width = max(1, int(round(max(width_a, width_b))))
+    measured_height = max(1, int(round(max(height_a, height_b))))
+    max_width, max_height = _a4_target_size(measured_width, measured_height)
+    destination = np.array(
+        [
+            [0, 0],
+            [max_width - 1, 0],
+            [max_width - 1, max_height - 1],
+            [0, max_height - 1],
+        ],
+        dtype="float32",
+    )
+    matrix = cv2.getPerspectiveTransform(rect, destination)
+    return cv2.warpPerspective(image, matrix, (max_width, max_height))
+
+
+def _a4_target_size(width: int, height: int) -> tuple[int, int]:
+    if height >= width:
+        return max(1, int(round(height / A4_ASPECT_RATIO))), height
+    return width, max(1, int(round(width / A4_ASPECT_RATIO)))
 
 
 def _percentiles(gray, low_percent: float, high_percent: float) -> tuple[int, int]:
@@ -252,7 +467,10 @@ def _column_ranges(mask) -> list[tuple[int, int]]:
         return [(min_x, max_x)]
 
     ranges = [(min_x, gap_left), (gap_right, max_x)]
-    return [(left, right) for left, right in ranges if right - left >= width * 0.12]
+    filtered = [(left, right) for left, right in ranges if right - left >= width * 0.12]
+    if not filtered:
+        return [(min_x, max_x)]
+    return filtered
 
 
 def _row_groups(mask) -> list[tuple[int, int]]:
@@ -445,6 +663,8 @@ def _quality_message(warnings: list[str]) -> str:
         return "没有清楚识别到题目内容，请先核对识别内容；如果题目或答案缺失，请把作业放满画面、对焦后重拍。"
     if {"small_image", "low_contrast", "blurry_image", "glare_or_overexposed_area"} & values:
         return "照片可能不够清楚，请先核对识别内容；如果题目或答案不完整，建议靠近题目、避开反光并对焦重拍。"
+    if "photo_not_level" in values:
+        return "照片已自动扶正；如果题目框仍有偏移，请将手机放平、让作业纸四边尽量完整后重拍。"
     return ""
 
 

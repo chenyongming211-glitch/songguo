@@ -31,6 +31,10 @@ class LearningSubmissionDraftItemRequest(BaseModel):
     bbox: dict[str, int] | None = None
     ocr_action: str = ""
     ocr_source: str = ""
+    ocr_judgement: str = ""
+    marking_source: str = ""
+    correct_answer: str = ""
+    evidence_points: list[str] = Field(default_factory=list)
     display_status: str = ""
     quality_warnings: list[str] = Field(default_factory=list)
 
@@ -60,6 +64,7 @@ class LearningSubmissionItemResponse(BaseModel):
     rubric_outcome: str = ""
     rubric_feedback: str = ""
     rubric_scores: dict[str, int] = Field(default_factory=dict)
+    evidence_points: list[str] = Field(default_factory=list)
     bbox: dict[str, int] | None = None
     status: LearningItemStatus
     display_status: str = "pending"

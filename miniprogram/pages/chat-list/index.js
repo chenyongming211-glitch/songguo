@@ -36,6 +36,46 @@ function toSessionViewModel(item) {
 }
 
 function chooseHomeworkImage() {
+  if (wx.navigateTo && wx.createCameraContext) {
+    return chooseHomeworkImageWithCameraGuide();
+  }
+  return chooseHomeworkImageNative();
+}
+
+function chooseHomeworkImageWithCameraGuide() {
+  return new Promise((resolve, reject) => {
+    wx.navigateTo({
+      url: "/pages/homework-camera/index",
+      success: (response) => {
+        let settled = false;
+        const settle = (callback, value) => {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          callback(value);
+        };
+        const channel = response.eventChannel;
+        channel.on("capturedHomeworkImage", (payload) => {
+          const filePath = payload && payload.tempFilePath;
+          if (filePath) {
+            settle(resolve, filePath);
+            return;
+          }
+          settle(reject, new Error("没有选择图片"));
+        });
+        channel.on("homeworkCameraClosed", () => {
+          settle(reject, new Error("没有选择图片"));
+        });
+      },
+      fail: () => {
+        chooseHomeworkImageNative().then(resolve).catch(reject);
+      },
+    });
+  });
+}
+
+function chooseHomeworkImageNative() {
   return new Promise((resolve, reject) => {
     if (wx.chooseMedia) {
       wx.chooseMedia({
@@ -146,12 +186,26 @@ function buildRecognizedSubmissionText(review) {
     .join("\n");
 }
 
+function buildPreviewImageUrl(draft) {
+  const previewUrl = String((draft && draft.preview_image_url) || "").trim();
+  if (!previewUrl) {
+    return "";
+  }
+  if (/^https?:\/\//i.test(previewUrl)) {
+    return previewUrl;
+  }
+  const { httpBaseUrl } = getBackendConfig();
+  const separator = previewUrl.startsWith("/") ? "" : "/";
+  return `${httpBaseUrl}${separator}${previewUrl}`;
+}
+
 function savePendingSubmissionDraft(sourceType, childId, draft, initialText, options) {
   const payload = {
     sourceType,
     childId,
     initialText,
     localImagePath: (options && options.localImagePath) || "",
+    previewImageUrl: buildPreviewImageUrl(draft),
     confidence: Number((draft && draft.confidence) || 0),
     itemCount: Array.isArray(draft && draft.items) ? draft.items.length : 0,
     items: (draft && draft.items) || [],

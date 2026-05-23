@@ -57,6 +57,21 @@
       <text class="section-text">请先看识别到的题目和孩子答案。确认后，系统会把本次过程沉淀到学习档案。</text>
     </view>
 
+    <view wx:if="{{routeSummaryVisible}}" class="route-summary">
+      <view class="route-summary-head">
+        <text class="route-summary-title">自动识别</text>
+        <text class="route-summary-subject">{{routeSubjectText}}</text>
+      </view>
+      <text
+        wx:for="{{routeEvidencePoints}}"
+        wx:for-item="point"
+        wx:key="*this"
+        class="route-evidence"
+      >
+        {{point}}
+      </text>
+    </view>
+
     <view class="item-list">
       <view wx:for="{{items}}" wx:key="item_id" class="submission-item card">
         <view class="item-head">
@@ -69,6 +84,17 @@
         <text class="item-type">{{item.typeText}}</text>
         <text wx:if="{{item.visualFallbackMessage}}" class="item-fallback">{{item.visualFallbackMessage}}</text>
         <text wx:if="{{item.rubricFeedback}}" class="item-feedback">判断依据：{{item.rubricFeedback}}</text>
+        <view wx:if="{{item.evidencePoints.length}}" class="item-evidence">
+          <text class="item-evidence-title">系统依据</text>
+          <text
+            wx:for="{{item.evidencePoints}}"
+            wx:for-item="point"
+            wx:key="*this"
+            class="item-evidence-point"
+          >
+            {{point}}
+          </text>
+        </view>
       </view>
     </view>
 

@@ -101,6 +101,16 @@ def mark_visual_fallback_pending_for_submission(
                 data_json={
                     "reason": "no_structured_items",
                     "whole_page_visual_fallback": True,
+                    "evidence_trace": [
+                        {
+                            "stage": "visual_fallback",
+                            "label": "视觉复核",
+                            "text": "整页照片没有拆出题目，先排队做整页视觉复核。",
+                            "confidence": 0.0,
+                            "source": "no_structured_items",
+                            "outcome": "pending",
+                        }
+                    ],
                     VISUAL_FALLBACK_KEY: {
                         "status": "pending",
                         "reason": "no_structured_items",
@@ -342,13 +352,52 @@ def _set_visual_fallback_state(
         next_state["model"] = model
     if confidence is not None:
         next_state["confidence"] = confidence
+    data_json = item.data_json if isinstance(item.data_json, dict) else {}
     return store.update_submission_item(
         item.item_id,
         data_json={
-            **(item.data_json if isinstance(item.data_json, dict) else {}),
+            **_append_visual_fallback_evidence(
+                data_json,
+                status=status,
+                reason=reason,
+                message=message,
+                confidence=float(confidence or 0.0),
+            ),
             VISUAL_FALLBACK_KEY: next_state,
         },
     )
+
+
+def _append_visual_fallback_evidence(
+    data_json: dict[str, Any],
+    *,
+    status: str,
+    reason: str,
+    message: str,
+    confidence: float = 0.0,
+) -> dict[str, Any]:
+    trace = [entry for entry in data_json.get("evidence_trace", []) if isinstance(entry, dict)]
+    entry = {
+        "stage": "visual_fallback",
+        "label": "视觉复核",
+        "text": str(message or "").strip(),
+        "confidence": max(0.0, min(1.0, confidence)),
+        "source": str(reason or "").strip(),
+        "outcome": str(status or "").strip(),
+    }
+    key = (entry["stage"], entry["label"], entry["text"], entry["outcome"])
+    seen = {
+        (
+            str(item.get("stage") or ""),
+            str(item.get("label") or ""),
+            str(item.get("text") or ""),
+            str(item.get("outcome") or ""),
+        )
+        for item in trace
+    }
+    if entry["text"] and key not in seen:
+        trace.append(entry)
+    return {**data_json, "evidence_trace": trace[-6:]}
 
 
 def _visual_fallback_content(submission: Any, item: Any) -> tuple[bytes, str]:

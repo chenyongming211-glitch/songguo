@@ -56,3 +56,19 @@ def test_router_does_not_add_secondary_action_when_quality_is_good() -> None:
     )
 
     assert actions == []
+
+
+def test_router_does_not_add_paper_ocr_for_rich_text_page_with_few_answers() -> None:
+    router = EducationOcrRouter(AliyunEduOCRConfig(scene="auto", hybrid_text_fallback_min_answer_rate=0.6))
+
+    actions = router.secondary_actions(
+        OcrQualitySignal(
+            primary_action=EducationOcrAction.PAPER_CUT,
+            item_count=5,
+            answer_count=0,
+            raw_text_length=520,
+            confidence=0.72,
+        )
+    )
+
+    assert actions == []

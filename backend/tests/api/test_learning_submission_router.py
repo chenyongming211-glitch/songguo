@@ -101,6 +101,46 @@ def test_create_submission_api_preserves_photo_item_bboxes() -> None:
     assert confirmed.json()["items"][0]["bbox"] == {"x": 60, "y": 80, "width": 880, "height": 720}
 
 
+def test_confirm_submission_uses_aliyun_oral_judgement_as_strong_evidence() -> None:
+    with TestClient(_build_app()) as client:
+        created = client.post(
+            "/api/v1/learning/submissions",
+            json={
+                "child_id": "child_001",
+                "subject": "math",
+                "grade": 4,
+                "source_type": "photo",
+                "raw_text": "500×80=\n孩子答案：4000",
+                "draft_items": [
+                    {
+                        "item_index": 1,
+                        "ocr_action": "RecognizeEduOralCalculation",
+                        "ocr_source": "aliyun_edu_oral_calculation",
+                        "ocr_judgement": "wrong",
+                        "marking_source": "aliyun_edu_oral_calculation",
+                        "correct_answer": "40000",
+                        "evidence_points": ["教育OCR口算判题：错误"],
+                        "display_status": "wrong",
+                    }
+                ],
+            },
+        ).json()
+        confirmed = client.post(
+            f"/api/v1/learning/submissions/{created['submission_id']}/confirm",
+            json={"raw_text": created["items"][0]["question_text"], "start_tutor": False},
+        )
+
+    assert confirmed.status_code == 200
+    payload = confirmed.json()
+    assert payload["wrong_count"] == 1
+    item = payload["items"][0]
+    assert item["judge_result"] == "wrong"
+    assert item["display_status"] == "wrong"
+    assert item["correct_answer"] == "40000"
+    assert item["question_type_id"] == "math_oral_calculation"
+    assert any("教育OCR口算判题" in point for point in item["evidence_points"])
+
+
 def test_create_submission_api_returns_agent_route_result_for_auto_subject() -> None:
     with TestClient(
         _build_app(
@@ -521,7 +561,7 @@ def test_confirm_photo_submission_judges_ten_photo_items_by_default() -> None:
 def test_confirm_photo_submission_defers_extra_judgement_items(monkeypatch) -> None:
     monkeypatch.setenv("SONGGUO_PHOTO_SYNC_JUDGEMENT_LIMIT", "4")
     raw_text = "\n\n".join(
-        f"{index}. 48 ÷ 6 = ?\n孩子答案：8"
+        f"{index}. 36 颗松果平均分给 5 只小松鼠，每只几颗，还剩几颗？\n孩子答案：每只 7 颗，还剩 1 颗"
         for index in range(1, 7)
     )
     with TestClient(_build_app()) as client:

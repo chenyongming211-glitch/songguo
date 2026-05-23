@@ -146,6 +146,36 @@ def test_basic_subject_rubric_normalizes_unknown_ascii_llm_tag_to_known_taxonomy
     assert result.misconception_tag == "english_past_tense_missing"
 
 
+def test_deterministic_english_rubric_defers_objective_item_without_answer_key() -> None:
+    result = BasicSubjectRubricEvaluator().evaluate(
+        BasicSubjectRubricContext(
+            subject="english",
+            task_type="unknown",
+            grade=3,
+            question_text="Read and judge. Robot: Can I help you?",
+            child_answer="T",
+        )
+    )
+
+    assert result.outcome == "needs_manual_confirm"
+    assert result.misconception_tag == "english_answer_key_missing"
+
+
+def test_deterministic_chinese_rubric_defers_choice_item_without_answer_key() -> None:
+    result = BasicSubjectRubricEvaluator().evaluate(
+        BasicSubjectRubricContext(
+            subject="chinese",
+            task_type="unknown",
+            grade=3,
+            question_text="根据选段的描述，下面图片中可能是赵州桥的是哪一项?",
+            child_answer="B",
+        )
+    )
+
+    assert result.outcome == "needs_manual_confirm"
+    assert result.misconception_tag == "chinese_answer_key_missing"
+
+
 def test_build_basic_subject_rubric_prompt_keeps_task_narrow() -> None:
     prompt = build_basic_subject_rubric_prompt(
         BasicSubjectRubricContext(

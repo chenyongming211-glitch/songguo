@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, File, Form, Header, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from songguo.backend.api.schemas.learning_submission import (
@@ -80,6 +81,10 @@ class SubmissionPhotoDraftItemResponse(BaseModel):
     bbox: dict[str, int] | None = None
     ocr_action: str = ""
     ocr_source: str = ""
+    ocr_judgement: str = ""
+    marking_source: str = ""
+    correct_answer: str = ""
+    evidence_points: list[str] = []
     quality_warnings: list[str] = []
     display_status: str = "pending"
 
@@ -88,6 +93,8 @@ class SubmissionPhotoDraftResponse(BaseModel):
     source_type: str = "photo"
     image_path: str
     image_refs: list[str] = []
+    preview_image_path: str = ""
+    preview_image_url: str = ""
     raw_text: str
     question_text: str = ""
     child_answer: str = ""
@@ -246,12 +253,9 @@ def _build_photo_submission_raw_text(*, question_text: str, child_answer: str, w
 
 
 def _photo_submission_raw_text_from_draft(draft) -> str:
-    raw_text = str(getattr(draft, "raw_text", "") or "").strip()
-    if raw_text:
-        return raw_text
     items = list(getattr(draft, "items", []) or [])
     if items:
-        return "\n\n".join(
+        structured_raw_text = "\n\n".join(
             _build_photo_submission_raw_text(
                 question_text=item.question_text,
                 child_answer=item.child_answer,
@@ -259,6 +263,11 @@ def _photo_submission_raw_text_from_draft(draft) -> str:
             )
             for item in items
         )
+        if structured_raw_text.strip():
+            return structured_raw_text
+    raw_text = str(getattr(draft, "raw_text", "") or "").strip()
+    if raw_text:
+        return raw_text
     return _build_photo_submission_raw_text(
         question_text=draft.question_text,
         child_answer=draft.child_answer,
@@ -266,7 +275,15 @@ def _photo_submission_raw_text_from_draft(draft) -> str:
     )
 
 
+def _photo_preview_url(preview_image_path: str) -> str:
+    if not preview_image_path:
+        return ""
+    return f"/api/v1/learning/submissions/photo-preview/{Path(preview_image_path).name}"
+
+
 def _photo_draft_item_display_status(item) -> str:
+    if item.ocr_judgement in {"correct", "wrong"}:
+        return item.ocr_judgement
     if not item.question_text or not item.child_answer:
         return "pending"
     if item.confidence < 0.75:
@@ -374,6 +391,7 @@ def _submission_item_response(item) -> LearningSubmissionItemResponse:
         rubric_outcome=str(rubric.get("outcome") or ""),
         rubric_feedback=str(rubric.get("feedback_summary") or ""),
         rubric_scores=_normalize_rubric_scores(scores),
+        evidence_points=_item_evidence_points(item),
         bbox=item.bbox_json,
         status=item.status,
         display_status=_item_display_status(item),
@@ -382,6 +400,46 @@ def _submission_item_response(item) -> LearningSubmissionItemResponse:
         visual_fallback_message=str(fallback.get("message") or ""),
         visual_fallback_attempts=int(fallback.get("attempts") or 0),
     )
+
+
+def _item_evidence_points(item) -> list[str]:
+    data_json = item.data_json if isinstance(item.data_json, dict) else {}
+    points: list[str] = []
+    trace = data_json.get("evidence_trace")
+    if isinstance(trace, list):
+        for entry in trace:
+            if not isinstance(entry, dict):
+                continue
+            label = str(entry.get("label") or "").strip()
+            text = str(entry.get("text") or "").strip()
+            if not text:
+                continue
+            points.append(f"{label}：{text}" if label else text)
+    if not points:
+        route = data_json.get("question_type_route")
+        if isinstance(route, dict):
+            evidence = route.get("evidence")
+            if isinstance(evidence, list):
+                points.extend(str(item).strip() for item in evidence if str(item).strip())
+        objective = data_json.get("objective_judge")
+        if isinstance(objective, dict) and str(objective.get("evidence") or "").strip():
+            points.append(str(objective.get("evidence")).strip())
+        rubric = data_json.get("basic_subject_rubric")
+        if isinstance(rubric, dict):
+            criteria = rubric.get("criteria_evidence")
+            if isinstance(criteria, list):
+                points.extend(str(item).strip() for item in criteria if str(item).strip())
+            feedback = str(rubric.get("feedback_summary") or "").strip()
+            if feedback:
+                points.append(feedback)
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for point in points:
+        if point in seen:
+            continue
+        seen.add(point)
+        deduped.append(point)
+    return deduped[:4]
 
 
 def _item_display_status(item) -> str:
@@ -422,9 +480,12 @@ async def create_submission_photo_draft(
         content=content,
         content_type=file.content_type or "application/octet-stream",
     )
+    preview_image_path = draft.preview_image_path or ""
     return SubmissionPhotoDraftResponse(
         image_path=image_path,
-        image_refs=[image_path],
+        image_refs=[preview_image_path or image_path],
+        preview_image_path=preview_image_path,
+        preview_image_url=_photo_preview_url(preview_image_path),
         raw_text=_photo_submission_raw_text_from_draft(draft),
         question_text=draft.question_text,
         child_answer=draft.child_answer,
@@ -441,6 +502,10 @@ async def create_submission_photo_draft(
                 bbox=item.bbox.model_dump(mode="json") if item.bbox else None,
                 ocr_action=item.source_action,
                 ocr_source=draft.source,
+                ocr_judgement=item.ocr_judgement,
+                marking_source=item.marking_source,
+                correct_answer=item.correct_answer,
+                evidence_points=item.evidence_points,
                 quality_warnings=item.quality_warnings,
                 display_status=_photo_draft_item_display_status(item),
             )
@@ -455,6 +520,22 @@ async def create_submission_photo_draft(
         ocr_model=draft.model,
         ocr_source=draft.source,
     )
+
+
+@router.get("/submissions/photo-preview/{filename}")
+def get_submission_photo_preview(filename: str) -> FileResponse:
+    safe_name = Path(filename).name
+    if not safe_name or safe_name != filename:
+        raise HTTPException(status_code=404, detail="Preview image not found")
+    target = get_photo_review_service().artifact_root / safe_name
+    try:
+        resolved_root = get_photo_review_service().artifact_root.resolve()
+        resolved_target = target.resolve()
+    except OSError as exc:
+        raise HTTPException(status_code=404, detail="Preview image not found") from exc
+    if resolved_root not in resolved_target.parents or not resolved_target.exists():
+        raise HTTPException(status_code=404, detail="Preview image not found")
+    return FileResponse(resolved_target, media_type="image/jpeg")
 
 
 @router.post("/submissions/voice-draft", response_model=SubmissionVoiceDraftResponse)
@@ -504,11 +585,24 @@ def create_learning_submission(
                 item.item_index: {
                     "ocr_action": item.ocr_action,
                     "ocr_source": item.ocr_source,
+                    "ocr_judgement": item.ocr_judgement,
+                    "marking_source": item.marking_source,
+                    "correct_answer": item.correct_answer,
+                    "evidence_points": item.evidence_points,
                     "display_status": item.display_status,
                     "quality_warnings": item.quality_warnings,
                 }
                 for item in request.draft_items
-                if item.ocr_action or item.ocr_source or item.display_status or item.quality_warnings
+                if (
+                    item.ocr_action
+                    or item.ocr_source
+                    or item.ocr_judgement
+                    or item.marking_source
+                    or item.correct_answer
+                    or item.evidence_points
+                    or item.display_status
+                    or item.quality_warnings
+                )
             },
         )
     except ValueError as exc:

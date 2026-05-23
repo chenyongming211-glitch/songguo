@@ -91,7 +91,7 @@ class EducationOcrRouter:
                 float(getattr(self.config, "hybrid_text_fallback_min_answer_rate", 0.6) or 0.6),
             ),
         )
-        if answer_rate < min_rate:
+        if answer_rate < min_rate and (signal.raw_text_length < 180 or signal.confidence < 0.7):
             return [EducationOcrAction.PAPER_OCR]
         if signal.raw_text_length < 20 and signal.confidence < 0.75:
             return [EducationOcrAction.PAPER_OCR]

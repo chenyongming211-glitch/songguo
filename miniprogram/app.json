@@ -1,6 +1,7 @@
 {
   "pages": [
     "pages/chat-list/index",
+    "pages/homework-camera/index",
     "pages/submission-review/index",
     "pages/chat-detail/index",
     "pages/parent-report/index",

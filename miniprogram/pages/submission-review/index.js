@@ -38,6 +38,13 @@ const QUESTION_TYPE_LABELS = {
   word_problem: "应用题",
 };
 
+const SUBJECT_LABELS = {
+  math: "数学",
+  chinese: "语文",
+  english: "英语",
+  unknown: "待确认",
+};
+
 function buildTypeText(item) {
   const raw = item.knowledge_point || item.question_type_id || "";
   if (!raw) {
@@ -45,6 +52,13 @@ function buildTypeText(item) {
   }
   const label = QUESTION_TYPE_LABELS[raw] || raw;
   return /^[a-z0-9_:-]+$/i.test(label) ? "数学题" : label;
+}
+
+function compactTextList(values) {
+  return (Array.isArray(values) ? values : [])
+    .map((value) => trimInput(value))
+    .filter(Boolean)
+    .slice(0, 4);
 }
 
 function buildItemViewModel(item) {
@@ -65,6 +79,7 @@ function buildItemViewModel(item) {
     rubricFeedback: item.rubric_feedback || "",
     visualFallbackMessage: item.visual_fallback_message || "",
     typeText: buildTypeText(item),
+    evidencePoints: compactTextList(item.evidence_points),
   };
 }
 
@@ -102,6 +117,21 @@ function recognitionSourceText(sourceType) {
   return "";
 }
 
+function routeSubjectText(payload) {
+  const subject = (payload && (payload.detected_subject || payload.subject)) || "";
+  const label = SUBJECT_LABELS[subject] || subject || "待确认";
+  const confidence = confidenceText(payload && payload.subject_confidence);
+  return confidence ? `${label} · ${confidence}` : label;
+}
+
+function routeEvidencePoints(payload) {
+  const evidence = compactTextList(payload && payload.routing_evidence);
+  if (payload && payload.guard_reason) {
+    evidence.push(`需要人工确认：${payload.guard_reason}`);
+  }
+  return evidence.slice(0, 4);
+}
+
 function qualityWarningText(warnings, qualityMessage) {
   const serverMessage = trimInput(qualityMessage);
   if (serverMessage) {
@@ -135,6 +165,9 @@ function qualityWarningText(warnings, qualityMessage) {
     }
     if (warning === "glare_or_overexposed_area") {
       return "照片有反光或过曝";
+    }
+    if (warning === "photo_not_level") {
+      return "照片角度不够平，系统已自动扶正";
     }
     if (warning === "ocr_provider_error") {
       return "OCR 服务暂时不可用";
@@ -287,6 +320,9 @@ Page({
     pendingDraftItems: [],
     pendingImageRefs: [],
     overlayItems: [],
+    routeSummaryVisible: false,
+    routeSubjectText: "",
+    routeEvidencePoints: [],
   },
 
   onLoad(options) {
@@ -308,7 +344,8 @@ Page({
     );
     const pendingDraftItems = (pendingDraft && pendingDraft.items) || [];
     const pendingImageRefs = (pendingDraft && pendingDraft.imageRefs) || [];
-    const photoImagePath = (pendingDraft && pendingDraft.localImagePath) || "";
+    const photoImagePath =
+      (pendingDraft && (pendingDraft.previewImageUrl || pendingDraft.localImagePath)) || "";
     const shouldAutoJudge =
       sourceType === "photo" &&
       Boolean(pendingDraft) &&
@@ -519,6 +556,7 @@ Page({
     const items = (payload.items || []).map(buildItemViewModel);
     const pendingVisualFallbackCount = Number(payload.pending_visual_fallback_count || 0);
     const visualFallbackActive = Boolean(payload.visual_fallback_active);
+    const routePoints = routeEvidencePoints(payload);
     this.setData({
       submissionId: payload.submission_id || this.data.submissionId,
       rawText,
@@ -537,6 +575,9 @@ Page({
       fallbackStatusText: visualFallbackActive
         ? `正在复核 ${pendingVisualFallbackCount || 1} 题，其他结果先显示。`
         : "",
+      routeSummaryVisible: Boolean(payload.detected_subject || payload.route_to || routePoints.length),
+      routeSubjectText: routeSubjectText(payload),
+      routeEvidencePoints: routePoints,
     });
     if (
       Boolean(options && options.confirmed) &&

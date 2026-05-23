@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+from types import SimpleNamespace
 
 import pytest
 
@@ -37,6 +38,23 @@ def _build_app(tmp_path, *, intent_router=None) -> FastAPI:
     app.state.learning_store = store
     app.include_router(router, prefix="/api/v1/learning")
     return app
+
+
+def test_photo_submission_raw_text_prefers_structured_items_over_page_raw_text() -> None:
+    draft = SimpleNamespace(
+        raw_text="1.左栏题\n孩子答案：264\n\n1.右栏选择题\n孩子答案：C",
+        items=[
+            SimpleNamespace(question_text="1.右栏选择题", child_answer="C", work_steps=""),
+            SimpleNamespace(question_text="2.左栏题", child_answer="264", work_steps=""),
+        ],
+        question_text="",
+        child_answer="",
+        work_steps="",
+    )
+
+    raw_text = learning_router_module._photo_submission_raw_text_from_draft(draft)
+
+    assert raw_text == "1.右栏选择题\n孩子答案：C\n\n2.左栏题\n孩子答案：264"
 
 
 def test_learning_router_reads_photo_ocr_provider_from_local_dotenv(monkeypatch) -> None:
@@ -140,12 +158,18 @@ def test_submission_photo_draft_does_not_create_legacy_session(tmp_path) -> None
             "bbox": {"x": 60, "y": 80, "width": 880, "height": 720},
             "ocr_action": "",
             "ocr_source": "deterministic",
+            "ocr_judgement": "",
+            "marking_source": "",
+            "correct_answer": "",
+            "evidence_points": [],
             "quality_warnings": [],
             "display_status": "pending",
         }
     ]
     assert payload["ocr_plan"] == {}
     assert payload["image_refs"] == [payload["image_path"]]
+    assert payload["preview_image_path"] == ""
+    assert payload["preview_image_url"] == ""
     assert payload["quality_warnings"] == []
     assert payload["detected_regions"] == []
     assert payload["preprocess_source"] == "non_image_fixture"
@@ -162,6 +186,35 @@ def test_submission_photo_draft_does_not_create_legacy_session(tmp_path) -> None
     assert ocr_log.metadata["item_count"] == 1
     assert ocr_log.metadata["needs_confirmation"] is False
     assert ocr_log.metadata["preprocess_source"] == "non_image_fixture"
+
+
+def test_submission_photo_draft_returns_preprocessed_preview_for_image_upload(tmp_path) -> None:
+    import cv2
+    import numpy as np
+
+    app = _build_app(tmp_path)
+    image = np.full((1000, 1400, 3), (250, 250, 246), dtype=np.uint8)
+    cv2.putText(image, "1. 21 x 50 = ?", (180, 260), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (20, 20, 20), 4)
+    cv2.putText(image, "Answer: 105", (180, 360), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (40, 40, 40), 3)
+    ok, encoded = cv2.imencode(".jpg", image, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
+    assert ok
+
+    with TestClient(app) as client:
+        res = client.post(
+            "/api/v1/learning/submissions/photo-draft",
+            data={"child_id": "child_001", "subject": "math", "grade": "4"},
+            files={"file": ("homework.jpg", encoded.tobytes(), "image/jpeg")},
+        )
+        payload = res.json()
+        preview_res = client.get(payload["preview_image_url"])
+
+    assert res.status_code == 200
+    assert payload["preview_image_path"]
+    assert payload["preview_image_path"] != payload["image_path"]
+    assert payload["preview_image_url"].startswith("/api/v1/learning/submissions/photo-preview/")
+    assert payload["image_refs"] == [payload["preview_image_path"]]
+    assert preview_res.status_code == 200
+    assert preview_res.headers["content-type"].startswith("image/jpeg")
 
 
 def test_submission_photo_draft_preserves_multiline_homework_text(tmp_path) -> None:
@@ -254,6 +307,8 @@ def test_submission_photo_draft_raw_text_flows_to_chinese_submission_rubric(tmp_
     assert payload["items"][0]["question_text"] == "用“因为……所以……”造句。"
     assert payload["items"][0]["child_answer"] == "因为下雨，所以我带伞。"
     assert payload["items"][0]["rubric_outcome"] == "correct"
+    assert payload["items"][0]["evidence_points"]
+    assert "基础学科判分" in payload["items"][0]["evidence_points"][0]
 
 
 def test_submission_voice_draft_transcribes_audio_without_creating_legacy_session(tmp_path) -> None:

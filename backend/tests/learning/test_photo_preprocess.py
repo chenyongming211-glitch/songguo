@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import cv2
 import numpy as np
 
@@ -132,6 +134,107 @@ def test_analyze_homework_photo_splits_two_column_numbered_questions() -> None:
     assert [region.y for region in result.question_regions] == sorted(
         region.y for region in result.question_regions
     )
+
+
+def test_analyze_homework_photo_perspective_corrects_skewed_page() -> None:
+    page = _blank(900, 1200)
+    cv2.rectangle(page, (70, 80), (830, 1120), (230, 230, 226), thickness=3)
+    for index, y in enumerate((230, 410, 590), start=1):
+        cv2.putText(page, f"{index}. 21 x 50 = ?", (120, y), cv2.FONT_HERSHEY_SIMPLEX, 1.1, (25, 25, 25), 3)
+        cv2.putText(page, "Answer: 105", (160, y + 70), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (35, 35, 35), 2)
+
+    canvas = np.full((1400, 1200, 3), (128, 128, 122), dtype=np.uint8)
+    source = np.float32([[0, 0], [899, 0], [899, 1199], [0, 1199]])
+    target = np.float32([[170, 120], [1010, 70], [1090, 1300], [90, 1240]])
+    matrix = cv2.getPerspectiveTransform(source, target)
+    warped = cv2.warpPerspective(page, matrix, (1200, 1400))
+    mask = cv2.warpPerspective(np.full((1200, 900), 255, dtype=np.uint8), matrix, (1200, 1400))
+    canvas[mask > 0] = warped[mask > 0]
+
+    result = analyze_homework_photo(_jpeg_bytes(canvas), filename="skewed-homework.jpg")
+
+    assert result.source == "opencv_document_perspective_v0.3"
+    assert "photo_not_level" in result.quality_warnings
+    assert "放平" in result.quality_message
+    assert result.processed_content
+    corrected = cv2.imdecode(np.frombuffer(result.processed_content, np.uint8), cv2.IMREAD_COLOR)
+    assert corrected is not None
+    corrected_height, corrected_width = corrected.shape[:2]
+    assert corrected_height > corrected_width
+    assert result.region_count >= 3
+    assert len(result.processed_question_regions) == result.region_count
+
+
+def test_analyze_homework_photo_scanner_mode_preserves_a4_page_ratio() -> None:
+    page = _blank(900, 1273)
+    cv2.rectangle(page, (55, 70), (845, 1203), (230, 230, 226), thickness=3)
+    for index, y in enumerate((240, 430, 620), start=1):
+        cv2.putText(page, f"{index}. 21 x 50 = ?", (120, y), cv2.FONT_HERSHEY_SIMPLEX, 1.1, (25, 25, 25), 3)
+        cv2.putText(page, "Answer: 105", (160, y + 70), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (35, 35, 35), 2)
+
+    canvas = np.full((1500, 1200, 3), (128, 128, 122), dtype=np.uint8)
+    source = np.float32([[0, 0], [899, 0], [899, 1272], [0, 1272]])
+    target = np.float32([[180, 120], [1000, 60], [1090, 1400], [80, 1330]])
+    matrix = cv2.getPerspectiveTransform(source, target)
+    warped = cv2.warpPerspective(page, matrix, (1200, 1500))
+    mask = cv2.warpPerspective(np.full((1273, 900), 255, dtype=np.uint8), matrix, (1200, 1500))
+    canvas[mask > 0] = warped[mask > 0]
+
+    result = analyze_homework_photo(_jpeg_bytes(canvas), filename="a4-scanner.jpg")
+
+    assert result.source == "opencv_document_perspective_v0.3"
+    preview = cv2.imdecode(np.frombuffer(result.preview_content, np.uint8), cv2.IMREAD_COLOR)
+    assert preview is not None
+    height, width = preview.shape[:2]
+    assert abs((height / width) - np.sqrt(2)) < 0.03
+    assert result.processed_x == 0
+    assert result.processed_y == 0
+
+
+def test_analyze_homework_photo_keeps_natural_deskewed_preview_separate_from_ocr_image() -> None:
+    page = _blank(900, 1200, (218, 218, 212))
+    cv2.rectangle(page, (60, 70), (840, 1130), (205, 205, 198), thickness=3)
+    for index, y in enumerate((230, 410, 590), start=1):
+        cv2.putText(page, f"{index}. 21 x 50 = ?", (120, y), cv2.FONT_HERSHEY_SIMPLEX, 1.1, (25, 25, 25), 3)
+        cv2.putText(page, "Answer: 105", (160, y + 70), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (35, 35, 35), 2)
+
+    canvas = np.full((1400, 1200, 3), (128, 128, 122), dtype=np.uint8)
+    source = np.float32([[0, 0], [899, 0], [899, 1199], [0, 1199]])
+    target = np.float32([[170, 120], [1010, 70], [1090, 1300], [90, 1240]])
+    matrix = cv2.getPerspectiveTransform(source, target)
+    warped = cv2.warpPerspective(page, matrix, (1200, 1400))
+    mask = cv2.warpPerspective(np.full((1200, 900), 255, dtype=np.uint8), matrix, (1200, 1400))
+    canvas[mask > 0] = warped[mask > 0]
+
+    result = analyze_homework_photo(_jpeg_bytes(canvas), filename="deskew-preview.jpg")
+
+    preview_content = getattr(result, "preview_content", b"")
+    assert preview_content
+    assert preview_content != result.processed_content
+
+    preview = cv2.imdecode(np.frombuffer(preview_content, np.uint8), cv2.IMREAD_COLOR)
+    ocr_image = cv2.imdecode(np.frombuffer(result.processed_content, np.uint8), cv2.IMREAD_COLOR)
+    assert preview is not None
+    assert ocr_image is not None
+    assert preview.shape[:2] == ocr_image.shape[:2]
+    assert float(np.mean(preview)) < float(np.mean(ocr_image))
+
+
+def test_analyze_homework_photo_rotates_real_partial_corner_page() -> None:
+    image_path = (
+        Path(__file__).resolve().parents[3]
+        / "zhaopian"
+        / "038c4944757951e6c22694eb7f9c015d.jpg"
+    )
+
+    result = analyze_homework_photo(image_path.read_bytes(), filename=image_path.name)
+
+    assert result.source in {
+        "opencv_document_rotation_v0.3",
+        "opencv_document_perspective_v0.3",
+    }
+    assert "photo_not_level" in result.quality_warnings
+    assert result.processed_content
 
 
 def test_analyze_homework_photo_splits_generated_multi_item_page(tmp_path) -> None:

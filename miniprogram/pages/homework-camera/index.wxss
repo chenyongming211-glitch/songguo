@@ -1,0 +1,174 @@
+.camera-page {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background: #0b0b0b;
+}
+
+.camera-view {
+  width: 100%;
+  height: 100%;
+}
+
+.camera-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  pointer-events: none;
+}
+
+.camera-topbar {
+  height: 132rpx;
+  padding: 34rpx 32rpx 0;
+  display: flex;
+  align-items: center;
+  gap: 22rpx;
+  color: #ffffff;
+}
+
+.camera-icon-button,
+.album-button,
+.shutter-button {
+  pointer-events: auto;
+}
+
+.camera-icon-button {
+  width: 72rpx;
+  height: 72rpx;
+  border-radius: 50%;
+  line-height: 64rpx;
+  padding: 0;
+  color: #ffffff;
+  background: rgba(0, 0, 0, 0.42);
+  font-size: 58rpx;
+}
+
+.camera-title {
+  font-size: 34rpx;
+  font-weight: 700;
+  text-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.35);
+}
+
+.camera-frame {
+  position: relative;
+  margin: 12rpx 40rpx 0;
+  flex: 1;
+  min-height: 0;
+  border: 4rpx solid rgba(255, 255, 255, 0.86);
+}
+
+.camera-frame.level-good {
+  border-color: rgba(20, 184, 166, 0.95);
+}
+
+.camera-frame.level-caution {
+  border-color: rgba(245, 158, 11, 0.95);
+}
+
+.camera-frame.level-warning {
+  border-color: rgba(239, 68, 68, 0.96);
+}
+
+.camera-grid {
+  position: absolute;
+  inset: 0;
+}
+
+.grid-line {
+  position: absolute;
+  background: rgba(255, 255, 255, 0.36);
+}
+
+.grid-line-v {
+  top: 0;
+  bottom: 0;
+  width: 2rpx;
+}
+
+.grid-line-h {
+  left: 0;
+  right: 0;
+  height: 2rpx;
+}
+
+.grid-line-v-left {
+  left: 33.333%;
+}
+
+.grid-line-v-right {
+  left: 66.666%;
+}
+
+.grid-line-h-top {
+  top: 33.333%;
+}
+
+.grid-line-h-bottom {
+  top: 66.666%;
+}
+
+.level-hint {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  min-width: 410rpx;
+  min-height: 172rpx;
+  padding: 34rpx 44rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16rpx;
+  border-radius: 28rpx;
+  color: #ffffff;
+  background: rgba(0, 0, 0, 0.48);
+}
+
+.level-icon {
+  font-size: 48rpx;
+  font-weight: 800;
+}
+
+.level-text {
+  font-size: 32rpx;
+  font-weight: 700;
+  text-align: center;
+}
+
+.camera-footer {
+  height: 214rpx;
+  padding: 28rpx 44rpx 44rpx;
+  display: grid;
+  grid-template-columns: 140rpx 1fr 140rpx;
+  align-items: center;
+  background: rgba(0, 0, 0, 0.78);
+}
+
+.album-button {
+  min-width: 128rpx;
+  height: 64rpx;
+  line-height: 64rpx;
+  padding: 0 22rpx;
+  border-radius: 32rpx;
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.18);
+  font-size: 28rpx;
+}
+
+.shutter-button {
+  justify-self: center;
+  width: 136rpx;
+  height: 136rpx;
+  border: 8rpx solid #ffffff;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.footer-spacer {
+  width: 140rpx;
+  height: 1rpx;
+}

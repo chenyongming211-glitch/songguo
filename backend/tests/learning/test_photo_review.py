@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -109,9 +110,78 @@ def test_aliyun_edu_ocr_provider_parses_oral_calculation_payload() -> None:
     assert draft.raw_text == "5 9 - 2 5 = 3 4"
     assert draft.items[0].question_text == "5 9 - 2 5 ="
     assert draft.items[0].child_answer == "3 4"
+    assert draft.items[0].ocr_judgement == "correct"
+    assert draft.items[0].marking_source == "aliyun_edu_oral_calculation"
+    assert draft.items[0].correct_answer == "3 4"
+    assert draft.items[0].evidence_points == ["教育OCR口算判题：正确"]
     assert draft.items[0].confidence >= 0.9
     assert draft.items[0].bbox == ImageBBox(x=56, y=141, width=156, height=33)
     assert draft.needs_confirmation is False
+
+
+def test_aliyun_auto_runs_oral_calculation_for_oral_page_and_preserves_judgement() -> None:
+    actions = []
+
+    async def fake_edu_ocr_func(**kwargs):
+        actions.append(kwargs["action"])
+        if kwargs["action"] == "RecognizeEduPaperCut":
+            return {
+                "Data": {
+                    "page_list": [
+                        {
+                            "height": 1000,
+                            "width": 1000,
+                            "subject_list": [
+                                {"text": "5×30=", "content_list_info": [{"pos": [{"x": 90, "y": 120}, {"x": 300, "y": 120}, {"x": 300, "y": 170}, {"x": 90, "y": 170}]}]},
+                                {"text": "22×40=", "content_list_info": [{"pos": [{"x": 90, "y": 210}, {"x": 300, "y": 210}, {"x": 300, "y": 260}, {"x": 90, "y": 260}]}]},
+                                {"text": "500×80=", "content_list_info": [{"pos": [{"x": 90, "y": 300}, {"x": 330, "y": 300}, {"x": 330, "y": 350}, {"x": 90, "y": 350}]}]},
+                            ],
+                        }
+                    ]
+                }
+            }
+        return {
+            "Data": {
+                "height": 1000,
+                "width": 1000,
+                "mathsInfo": [
+                    {
+                        "title": "5×30=150",
+                        "result": "right",
+                        "pos": [{"x": 90, "y": 120}, {"x": 300, "y": 120}, {"x": 300, "y": 170}, {"x": 90, "y": 170}],
+                    },
+                    {
+                        "title": "22×40=880",
+                        "result": "right",
+                        "pos": [{"x": 90, "y": 210}, {"x": 320, "y": 210}, {"x": 320, "y": 260}, {"x": 90, "y": 260}],
+                    },
+                    {
+                        "title": "500×80=4000",
+                        "result": "wrong",
+                        "answer": "40000",
+                        "pos": [{"x": 90, "y": 300}, {"x": 360, "y": 300}, {"x": 360, "y": 350}, {"x": 90, "y": 350}],
+                    },
+                ],
+            }
+        }
+
+    provider = AliyunEduOCRProvider(
+        config=AliyunEduOCRConfig(
+            access_key_id="ak-id",
+            access_key_secret="ak-secret",
+            scene="auto",
+            max_secondary_actions=1,
+        ),
+        client_func=fake_edu_ocr_func,
+    )
+
+    draft = asyncio.run(provider.recognize_async(b"\xff\xd8\xff", filename="oral-page.jpg"))
+
+    assert actions == ["RecognizeEduPaperCut", "RecognizeEduOralCalculation"]
+    assert draft.model == "RecognizeEduPaperCut+RecognizeEduOralCalculation"
+    assert draft.source == "aliyun_edu_paper_cut_oral_judgement"
+    assert [item.ocr_judgement for item in draft.items] == ["correct", "correct", "wrong"]
+    assert [item.correct_answer for item in draft.items] == ["150", "880", "40000"]
 
 
 def test_aliyun_edu_ocr_provider_parses_paper_words_payload() -> None:
@@ -138,6 +208,130 @@ def test_aliyun_edu_ocr_provider_parses_paper_words_payload() -> None:
     assert "48 ÷ 6" in draft.raw_text
     assert draft.items[0].question_text == "48 ÷ 6 = ?"
     assert draft.items[0].child_answer == "8"
+    assert draft.items[0].bbox == ImageBBox(x=80, y=100, width=340, height=80)
+
+
+def test_aliyun_edu_ocr_provider_binds_text_items_to_word_bboxes() -> None:
+    async def fake_edu_ocr_func(**_kwargs):
+        return {
+            "Data": {
+                "content": (
+                    "1. 21×50=(105)\n"
+                    "2. 24个11的和是(264)，42的400倍是(16800)。\n"
+                    "3. 两位数乘两位数，积可能是三位数，也可能是四位数。(√)"
+                ),
+                "height": 1200,
+                "width": 900,
+                "prism_wordsInfo": [
+                    {
+                        "word": "1. 21×50=(105)",
+                        "prob": 98,
+                        "pos": [
+                            {"x": 90, "y": 180},
+                            {"x": 620, "y": 180},
+                            {"x": 620, "y": 245},
+                            {"x": 90, "y": 245},
+                        ],
+                    },
+                    {
+                        "word": "2. 24个11的和是(264)，42的400倍是(16800)。",
+                        "prob": 97,
+                        "pos": [
+                            {"x": 90, "y": 275},
+                            {"x": 800, "y": 275},
+                            {"x": 800, "y": 345},
+                            {"x": 90, "y": 345},
+                        ],
+                    },
+                    {
+                        "word": "3. 两位数乘两位数，积可能是三位数，也可能是四位数。(√)",
+                        "prob": 96,
+                        "pos": [
+                            {"x": 90, "y": 760},
+                            {"x": 820, "y": 760},
+                            {"x": 820, "y": 830},
+                            {"x": 90, "y": 830},
+                        ],
+                    },
+                ],
+            }
+        }
+
+    provider = AliyunEduOCRProvider(
+        config=AliyunEduOCRConfig(
+            access_key_id="ak-id",
+            access_key_secret="ak-secret",
+            scene="paper_ocr",
+        ),
+        client_func=fake_edu_ocr_func,
+    )
+
+    draft = asyncio.run(provider.recognize_async(b"\xff\xd8\xff", filename="paper.jpg"))
+
+    assert [item.child_answer for item in draft.items] == ["105", "264；16800", "√"]
+    assert draft.items[0].bbox == ImageBBox(x=100, y=150, width=589, height=54)
+    assert draft.items[1].bbox == ImageBBox(x=100, y=229, width=789, height=58)
+    assert draft.items[2].bbox == ImageBBox(x=100, y=633, width=811, height=58)
+
+
+def test_aliyun_paper_cut_items_are_sorted_by_bound_word_bbox_layout() -> None:
+    async def fake_edu_ocr_func(**_kwargs):
+        return {
+            "Data": {
+                "height": 1200,
+                "width": 900,
+                "page_list": [
+                    {
+                        "height": 1200,
+                        "width": 900,
+                        "subject_list": [
+                            {"text": "(保定涿州市期末)积大约是5600的算式是( )。"},
+                            {"text": "口算21×50时，可以先算21×5=( )。"},
+                        ],
+                    }
+                ],
+                "prism_wordsInfo": [
+                    {
+                        "word": "口算21×50时，可以先算21×5=( )。",
+                        "prob": 98,
+                        "pos": [
+                            {"x": 90, "y": 180},
+                            {"x": 720, "y": 180},
+                            {"x": 720, "y": 245},
+                            {"x": 90, "y": 245},
+                        ],
+                    },
+                    {
+                        "word": "(保定涿州市期末)积大约是5600的算式是( )。",
+                        "prob": 96,
+                        "pos": [
+                            {"x": 90, "y": 780},
+                            {"x": 760, "y": 780},
+                            {"x": 760, "y": 855},
+                            {"x": 90, "y": 855},
+                        ],
+                    },
+                ],
+            }
+        }
+
+    provider = AliyunEduOCRProvider(
+        config=AliyunEduOCRConfig(
+            access_key_id="ak-id",
+            access_key_secret="ak-secret",
+            scene="paper_cut",
+        ),
+        client_func=fake_edu_ocr_func,
+    )
+
+    draft = asyncio.run(provider.recognize_async(b"\xff\xd8\xff", filename="paper-cut.jpg"))
+
+    assert [item.question_text for item in draft.items] == [
+        "口算21×50时，可以先算21×5=( )。",
+        "(保定涿州市期末)积大约是5600的算式是( )。",
+    ]
+    assert draft.items[0].bbox == ImageBBox(x=100, y=150, width=700, height=54)
+    assert draft.items[1].bbox == ImageBBox(x=100, y=650, width=744, height=62)
 
 
 def test_aliyun_edu_ocr_provider_splits_question_numbers_after_inline_answers() -> None:
@@ -307,6 +501,306 @@ def test_aliyun_edu_ocr_provider_cleans_embedded_answers_from_paper_cut_subject_
     assert draft.items[0].question_text == "口算21×50时，可以先算21×5=( )，再在积的后面添上( )个0。"
     assert draft.items[0].child_answer == "105"
     assert draft.items[0].bbox == ImageBBox(x=100, y=100, width=700, height=80)
+
+
+def test_aliyun_edu_ocr_provider_preserves_comparison_gap_signs_for_binding() -> None:
+    async def fake_edu_ocr_func(**_kwargs):
+        return {
+            "Data": {
+                "page_list": [
+                    {
+                        "height": 1000,
+                        "width": 1000,
+                        "subject_list": [
+                            {
+                                "text": (
+                                    "4.在 o 里填上“>”“<”或“=”。 "
+                                    "50x40()15x80 63×27(< < )27×85 "
+                                    "40×125(100×28"
+                                ),
+                                "content_list_info": [
+                                    {
+                                        "pos": [
+                                            {"x": 100, "y": 100},
+                                            {"x": 900, "y": 100},
+                                            {"x": 900, "y": 260},
+                                            {"x": 100, "y": 260},
+                                        ]
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                ]
+            }
+        }
+
+    provider = AliyunEduOCRProvider(
+        config=AliyunEduOCRConfig(
+            access_key_id="ak-id",
+            access_key_secret="ak-secret",
+            scene="paper_cut",
+        ),
+        client_func=fake_edu_ocr_func,
+    )
+
+    draft = asyncio.run(provider.recognize_async(b"\xff\xd8\xff", filename="paper-cut.jpg"))
+
+    assert len(draft.items) == 1
+    assert "63×27(< < )27×85" in draft.items[0].question_text
+    assert draft.items[0].child_answer == "<<"
+    assert draft.items[0].bbox == ImageBBox(x=100, y=100, width=800, height=160)
+
+
+def test_aliyun_edu_ocr_provider_prefers_handwritten_word_tokens_over_text_artifacts() -> None:
+    async def fake_edu_ocr_func(**_kwargs):
+        return {
+            "Data": {
+                "page_list": [
+                    {
+                        "height": 1000,
+                        "width": 1000,
+                        "subject_list": [
+                            {
+                                "text": "1.口算21×50时，可以先算21×5=( 105 5)，再在积的后面添上( )个0。",
+                                "content_list_info": [
+                                    {
+                                        "pos": [
+                                            {"x": 100, "y": 100},
+                                            {"x": 900, "y": 100},
+                                            {"x": 900, "y": 180},
+                                            {"x": 100, "y": 180},
+                                        ]
+                                    }
+                                ],
+                                "prism_wordsInfo": [
+                                    {
+                                        "word": "1.口算21×50时，可以先算21×5=(",
+                                        "recClassify": 0,
+                                        "pos": [
+                                            {"x": 100, "y": 100},
+                                            {"x": 520, "y": 100},
+                                            {"x": 520, "y": 140},
+                                            {"x": 100, "y": 140},
+                                        ],
+                                    },
+                                    {
+                                        "word": "105",
+                                        "recClassify": 2,
+                                        "pos": [
+                                            {"x": 520, "y": 96},
+                                            {"x": 575, "y": 96},
+                                            {"x": 575, "y": 144},
+                                            {"x": 520, "y": 144},
+                                        ],
+                                    },
+                                    {
+                                        "word": "5)，再在积的后面添上(",
+                                        "recClassify": 0,
+                                        "pos": [
+                                            {"x": 575, "y": 100},
+                                            {"x": 850, "y": 100},
+                                            {"x": 850, "y": 140},
+                                            {"x": 575, "y": 140},
+                                        ],
+                                    },
+                                    {
+                                        "word": ")个0。",
+                                        "recClassify": 0,
+                                        "pos": [
+                                            {"x": 850, "y": 100},
+                                            {"x": 930, "y": 100},
+                                            {"x": 930, "y": 140},
+                                            {"x": 850, "y": 140},
+                                        ],
+                                    },
+                                ],
+                            }
+                        ],
+                    }
+                ]
+            }
+        }
+
+    provider = AliyunEduOCRProvider(
+        config=AliyunEduOCRConfig(
+            access_key_id="ak-id",
+            access_key_secret="ak-secret",
+            scene="paper_cut",
+        ),
+        client_func=fake_edu_ocr_func,
+    )
+
+    draft = asyncio.run(provider.recognize_async(b"\xff\xd8\xff", filename="paper-cut.jpg"))
+
+    assert len(draft.items) == 1
+    assert draft.items[0].child_answer == "105"
+
+
+def test_aliyun_edu_ocr_provider_inserts_handwritten_comparison_token_into_nearest_gap() -> None:
+    async def fake_edu_ocr_func(**_kwargs):
+        return {
+            "Data": {
+                "page_list": [
+                    {
+                        "height": 1000,
+                        "width": 1000,
+                        "subject_list": [
+                            {
+                                "text": (
+                                    "4.在 o 里填上“>”“<”或“=”。 "
+                                    "50x40()15x80 63×27()27×85"
+                                ),
+                                "content_list_info": [
+                                    {
+                                        "pos": [
+                                            {"x": 100, "y": 100},
+                                            {"x": 900, "y": 100},
+                                            {"x": 900, "y": 220},
+                                            {"x": 100, "y": 220},
+                                        ]
+                                    }
+                                ],
+                                "prism_wordsInfo": [
+                                    {
+                                        "word": "4.在 o 里填上“>”“<”或“=”。",
+                                        "recClassify": 0,
+                                        "pos": [
+                                            {"x": 120, "y": 100},
+                                            {"x": 520, "y": 100},
+                                            {"x": 520, "y": 130},
+                                            {"x": 120, "y": 130},
+                                        ],
+                                    },
+                                    {
+                                        "word": "50x40()15x80",
+                                        "recClassify": 0,
+                                        "pos": [
+                                            {"x": 120, "y": 155},
+                                            {"x": 340, "y": 155},
+                                            {"x": 340, "y": 190},
+                                            {"x": 120, "y": 190},
+                                        ],
+                                    },
+                                    {
+                                        "word": "63×27()27×85",
+                                        "recClassify": 0,
+                                        "pos": [
+                                            {"x": 520, "y": 155},
+                                            {"x": 750, "y": 155},
+                                            {"x": 750, "y": 190},
+                                            {"x": 520, "y": 190},
+                                        ],
+                                    },
+                                    {
+                                        "word": "<",
+                                        "recClassify": 2,
+                                        "pos": [
+                                            {"x": 620, "y": 150},
+                                            {"x": 650, "y": 150},
+                                            {"x": 650, "y": 195},
+                                            {"x": 620, "y": 195},
+                                        ],
+                                    },
+                                ],
+                            }
+                        ],
+                    }
+                ]
+            }
+        }
+
+    provider = AliyunEduOCRProvider(
+        config=AliyunEduOCRConfig(
+            access_key_id="ak-id",
+            access_key_secret="ak-secret",
+            scene="paper_cut",
+        ),
+        client_func=fake_edu_ocr_func,
+    )
+
+    draft = asyncio.run(provider.recognize_async(b"\xff\xd8\xff", filename="paper-cut.jpg"))
+
+    assert len(draft.items) == 1
+    assert "50x40()15x80" in draft.items[0].question_text
+    assert "63×27(<)27×85" in draft.items[0].question_text
+    assert draft.items[0].child_answer == "<"
+
+
+def test_aliyun_edu_ocr_provider_cleans_unbalanced_coordinate_answer_artifact() -> None:
+    async def fake_edu_ocr_func(**_kwargs):
+        return {
+            "Data": {
+                "page_list": [
+                    {
+                        "height": 1000,
+                        "width": 1000,
+                        "subject_list": [
+                            {
+                                "text": "一盒月饼12个，王老师买了22盒，一共买了 - 264 )个。",
+                                "content_list_info": [
+                                    {
+                                        "pos": [
+                                            {"x": 100, "y": 100},
+                                            {"x": 900, "y": 100},
+                                            {"x": 900, "y": 180},
+                                            {"x": 100, "y": 180},
+                                        ]
+                                    }
+                                ],
+                                "prism_wordsInfo": [
+                                    {
+                                        "word": "一盒月饼12个，王老师买了22盒，一共买了 -",
+                                        "recClassify": 0,
+                                        "pos": [
+                                            {"x": 100, "y": 100},
+                                            {"x": 600, "y": 100},
+                                            {"x": 600, "y": 140},
+                                            {"x": 100, "y": 140},
+                                        ],
+                                    },
+                                    {
+                                        "word": "264",
+                                        "recClassify": 2,
+                                        "pos": [
+                                            {"x": 610, "y": 96},
+                                            {"x": 675, "y": 96},
+                                            {"x": 675, "y": 145},
+                                            {"x": 610, "y": 145},
+                                        ],
+                                    },
+                                    {
+                                        "word": ")个。",
+                                        "recClassify": 0,
+                                        "pos": [
+                                            {"x": 675, "y": 100},
+                                            {"x": 740, "y": 100},
+                                            {"x": 740, "y": 140},
+                                            {"x": 675, "y": 140},
+                                        ],
+                                    },
+                                ],
+                            }
+                        ],
+                    }
+                ]
+            }
+        }
+
+    provider = AliyunEduOCRProvider(
+        config=AliyunEduOCRConfig(
+            access_key_id="ak-id",
+            access_key_secret="ak-secret",
+            scene="paper_cut",
+        ),
+        client_func=fake_edu_ocr_func,
+    )
+
+    draft = asyncio.run(provider.recognize_async(b"\xff\xd8\xff", filename="paper-cut.jpg"))
+
+    assert len(draft.items) == 1
+    assert draft.items[0].question_text == "一盒月饼12个，王老师买了22盒，一共买了( )个。"
+    assert draft.items[0].child_answer == "264"
 
 
 def test_aliyun_edu_ocr_provider_hybrid_fallback_merges_paper_ocr_answers_into_paper_cut_boxes() -> None:
@@ -727,6 +1221,7 @@ def test_aliyun_edu_ocr_provider_parses_paper_cut_page_list_payload() -> None:
     assert draft.raw_text == "1. 三角形按角分类可以分为( )"
     assert draft.items[0].question_text == "1. 三角形按角分类可以分为( )"
     assert draft.items[0].bbox == ImageBBox(x=71, y=234, width=419, height=85)
+    assert draft.items[0].source_action == "RecognizeEduPaperCut"
 
 
 def test_aliyun_edu_ocr_provider_falls_back_to_paper_ocr_when_paper_cut_is_empty() -> None:
@@ -1218,9 +1713,13 @@ def test_photo_review_service_preprocesses_image_and_fills_detected_bboxes(tmp_p
     assert draft.items[1].bbox is not None
     assert draft.detected_regions == [item.bbox for item in draft.items]
     assert draft.preprocess_source.startswith("opencv_")
+    assert draft.preview_image_path
+    preview = cv2.imdecode(np.frombuffer(Path(draft.preview_image_path).read_bytes(), np.uint8), cv2.IMREAD_COLOR)
+    assert preview is not None
+    assert preview.shape[:2] == (seen_sizes[0][1], seen_sizes[0][0])
 
 
-def test_photo_review_service_keeps_original_image_for_aliyun_edu_ocr(tmp_path) -> None:
+def test_photo_review_service_sends_preprocessed_image_to_aliyun_edu_ocr(tmp_path) -> None:
     image = np.full((1000, 1400, 3), (250, 250, 246), dtype=np.uint8)
     cv2.putText(image, "48 / 6 = ?", (180, 260), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (20, 20, 20), 4)
     cv2.putText(image, "Answer: 8", (180, 360), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (40, 40, 40), 3)
@@ -1262,12 +1761,65 @@ def test_photo_review_service_keeps_original_image_for_aliyun_edu_ocr(tmp_path) 
         )
     )
 
-    assert seen_contents == [original_content]
+    assert seen_contents
+    assert seen_contents[0] != original_content
     assert draft.preprocess_source.startswith("opencv_")
+    assert draft.preview_image_path
     assert draft.items[0].question_text == "48 / 6 = ?"
 
 
-def test_photo_review_service_maps_model_bbox_from_processed_image_to_original(tmp_path) -> None:
+def test_photo_review_service_forces_opencv_preview_as_ocr_input(tmp_path) -> None:
+    image = np.full((1000, 1400, 3), (250, 250, 246), dtype=np.uint8)
+    cv2.rectangle(image, (150, 150), (1250, 840), (230, 230, 226), thickness=-1)
+    cv2.putText(image, "48 / 6 = ?", (260, 330), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (20, 20, 20), 4)
+    cv2.putText(image, "Answer: 8", (260, 440), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (40, 40, 40), 3)
+    ok, encoded = cv2.imencode(".jpg", image, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
+    assert ok
+    original_content = encoded.tobytes()
+    seen_contents = []
+
+    class Provider:
+        use_preprocessed_content = False
+
+        def recognize(self, content: bytes, *, filename: str, region_hints: list[ImageBBox] | None = None):
+            seen_contents.append(content)
+            return OCRDraft(
+                raw_text="48 / 6 = ?\n孩子答案：8",
+                confidence=0.93,
+                needs_confirmation=False,
+                items=[
+                    OCRItemDraft(
+                        item_index=1,
+                        question_text="48 / 6 = ?",
+                        child_answer="8",
+                        bbox=ImageBBox(x=100, y=120, width=760, height=180),
+                    )
+                ],
+            )
+
+    service = PhotoReviewService(
+        store=InMemoryLearningStore(),
+        artifact_root=tmp_path,
+        ocr_provider=Provider(),
+    )
+
+    _image_path, draft = asyncio.run(
+        service.recognize_submission_draft_async(
+            child_id="child_001",
+            filename="homework.jpg",
+            content=original_content,
+            content_type="image/jpeg",
+        )
+    )
+
+    assert seen_contents
+    assert seen_contents[0] != original_content
+    assert draft.preview_image_path
+    assert seen_contents[0] != Path(draft.preview_image_path).read_bytes()
+    assert draft.items[0].bbox == ImageBBox(x=100, y=120, width=760, height=180)
+
+
+def test_photo_review_service_keeps_model_bbox_in_processed_preview_space(tmp_path) -> None:
     image = np.full((1000, 1400, 3), (250, 250, 246), dtype=np.uint8)
     cv2.rectangle(image, (250, 220), (1050, 250), (28, 28, 28), thickness=-1)
     cv2.rectangle(image, (250, 310), (800, 340), (38, 38, 38), thickness=-1)
@@ -1305,11 +1857,8 @@ def test_photo_review_service_maps_model_bbox_from_processed_image_to_original(t
         )
     )
 
-    assert draft.items[0].bbox is not None
-    assert draft.items[0].bbox.x > 0
-    assert draft.items[0].bbox.y > 0
-    assert draft.items[0].bbox.width < 1000
-    assert draft.items[0].bbox.height < 1000
+    assert draft.preview_image_path
+    assert draft.items[0].bbox == ImageBBox(x=0, y=0, width=1000, height=1000)
 
 
 def test_photo_review_service_records_preprocess_observability(tmp_path) -> None:

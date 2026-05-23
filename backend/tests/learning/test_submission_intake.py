@@ -198,6 +198,63 @@ def test_parse_text_submission_extracts_choice_and_judgement_answers_from_ocr_te
     assert "( B )" not in draft.items[1].question_text
 
 
+def test_parse_text_submission_extracts_numeric_answers_before_units() -> None:
+    draft = parse_text_submission(
+        child_id="child_001",
+        subject="math",
+        grade=3,
+        raw_text="""
+        1.一盒月饼12个，王老师买了22盒，一共买了( 264 )个。
+        2.一部动画片从9月5日开始每天播放1集，9月28日播放大结局，这部动画片一共播放了( 24 )集。
+        """,
+    )
+
+    assert len(draft.items) == 2
+    assert draft.items[0].child_answer == "264"
+    assert "( 264 )" not in draft.items[0].question_text
+    assert draft.items[1].child_answer == "24"
+    assert "( 24 )" not in draft.items[1].question_text
+
+
+def test_parse_text_submission_extracts_choice_answer_with_ocr_trailing_dot() -> None:
+    draft = parse_text_submission(
+        child_id="child_001",
+        subject="math",
+        grade=3,
+        raw_text="1.积大约是5600的算式是( C. )。 A.59×79 B.79×61 C.79×71",
+    )
+
+    assert len(draft.items) == 1
+    assert draft.items[0].child_answer == "C"
+    assert "( C. )" not in draft.items[0].question_text
+
+
+def test_parse_text_submission_extracts_english_true_false_answer() -> None:
+    draft = parse_text_submission(
+        child_id="child_001",
+        subject="english",
+        grade=3,
+        raw_text="1. Read and judge. Robot: Can I help you? ( T )",
+    )
+
+    assert len(draft.items) == 1
+    assert draft.items[0].child_answer == "T"
+    assert "( T )" not in draft.items[0].question_text
+
+
+def test_parse_text_submission_extracts_fifth_choice_letter() -> None:
+    draft = parse_text_submission(
+        child_id="child_001",
+        subject="english",
+        grade=3,
+        raw_text="1. Look, read and choose. What would you like? ( E ) A. B. C. D. E.",
+    )
+
+    assert len(draft.items) == 1
+    assert draft.items[0].child_answer == "E"
+    assert "( E )" not in draft.items[0].question_text
+
+
 def test_parse_text_submission_extracts_solution_process_final_answer_from_ocr_text() -> None:
     draft = parse_text_submission(
         child_id="child_001",
@@ -213,6 +270,24 @@ def test_parse_text_submission_extracts_solution_process_final_answer_from_ocr_t
     assert draft.items[0].work_steps == "31-25+1+15=22(天)\n22×8=176(元)"
     assert "31-25+1+15=22" not in draft.items[0].question_text
     assert draft.items[0].question_text.endswith("活动经费?(6分)")
+
+
+def test_parse_text_submission_recovers_unbalanced_ocr_blank_answers() -> None:
+    draft = parse_text_submission(
+        child_id="child_001",
+        subject="math",
+        grade=3,
+        raw_text="""
+        1.一盒月饼12个，王老师买了22盒，一共买了 - 264 )个。
+        2.平均每分钟打54个字，他110分钟可以打( (5940 个字。
+        """,
+    )
+
+    assert len(draft.items) == 2
+    assert draft.items[0].child_answer == "264"
+    assert "- 264" not in draft.items[0].question_text
+    assert draft.items[1].child_answer == "5940"
+    assert "5940" not in draft.items[1].question_text
 
 
 def test_parse_text_submission_does_not_treat_score_or_section_markers_as_answers() -> None:

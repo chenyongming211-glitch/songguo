@@ -160,6 +160,10 @@ function createLearningSubmission(payload) {
       bbox: item.bbox || null,
       ocr_action: item.ocr_action || "",
       ocr_source: item.ocr_source || "",
+      ocr_judgement: item.ocr_judgement || "",
+      marking_source: item.marking_source || "",
+      correct_answer: item.correct_answer || "",
+      evidence_points: item.evidence_points || [],
       display_status: item.display_status || "",
       quality_warnings: item.quality_warnings || [],
     }));

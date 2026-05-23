@@ -37,7 +37,7 @@ _COMPARISON_CANDIDATE_RE = re.compile(r"^[<>＝=≤≥]+$")
 _CHINESE_NUMERAL_CANDIDATE_RE = re.compile(r"^[一二三四五六七八九十百千万亿零两]+$")
 _SHORT_TEXT_ANSWER_RE = re.compile(r"^[A-Za-z0-9\u4e00-\u9fff<>＝=≤≥√✓错对，,、]{1,16}$")
 _ANSWER_CONTEXT_PREVIOUS = {"=", "＝", "是", "为", "有", "共", "比", "到", "至", "加", "减", "添", "填", "剩"}
-_ANSWER_CONTEXT_NEXT_RE = re.compile(r"^[个年月日时分秒周天位元米袋人页克厘米千公只本张条道题倍节岁]")
+_ANSWER_CONTEXT_NEXT_RE = re.compile(r"^[个年月日时分秒周天位元米袋人页克厘米千公只本张条道题倍节岁集]")
 
 
 def parse_text_submission(
@@ -313,10 +313,12 @@ def _extract_embedded_answer(item: LearningItemDraft) -> LearningItemDraft:
     question_without_work, work_steps, process_answer = _extract_solution_work(question_text)
     question_without_final_answer, final_answer = _extract_final_answer(question_without_work)
     bracket_question, bracket_answers = _extract_bracket_answers(question_without_final_answer)
-    child_answer = "；".join(bracket_answers) if bracket_answers else final_answer or process_answer
+    unbalanced_question, unbalanced_answers = _extract_unbalanced_ocr_blank_answers(bracket_question)
+    embedded_answers = [*bracket_answers, *unbalanced_answers]
+    child_answer = "；".join(embedded_answers) if embedded_answers else final_answer or process_answer
     updates: dict[str, object] = {}
-    if bracket_question != question_text:
-        updates["question_text"] = _normalize_question_spacing(bracket_question)
+    if unbalanced_question != question_text:
+        updates["question_text"] = _normalize_question_spacing(unbalanced_question)
     elif question_without_final_answer != question_text:
         updates["question_text"] = _normalize_question_spacing(question_without_final_answer)
     elif question_without_work != question_text:
@@ -383,8 +385,54 @@ def _extract_bracket_answers(question_text: str) -> tuple[str, list[str]]:
     return _normalize_question_spacing(cleaned), answers
 
 
+def _extract_unbalanced_ocr_blank_answers(question_text: str) -> tuple[str, list[str]]:
+    answers: list[str] = []
+
+    def replace_dash_closed(match: re.Match[str]) -> str:
+        candidate = _normalize_embedded_answer(match.group("answer"))
+        if not _is_unbalanced_ocr_answer_candidate(candidate, question_text, match.start("answer"), match.end()):
+            return match.group(0)
+        answers.append(candidate)
+        return "( )"
+
+    def replace_open_open(match: re.Match[str]) -> str:
+        candidate = _normalize_embedded_answer(match.group("answer"))
+        if not _is_unbalanced_ocr_answer_candidate(candidate, question_text, match.start("answer"), match.end()):
+            return match.group(0)
+        answers.append(candidate)
+        return "( )"
+
+    cleaned = re.sub(
+        r"\s*[-－]\s*(?P<answer>\d{1,8})\s*[）)](?=\s*[\u4e00-\u9fffA-Za-z])",
+        replace_dash_closed,
+        question_text,
+    )
+    cleaned = re.sub(
+        r"[（(]\s*[（(]\s*(?P<answer>\d{1,8})(?=\s*(?:个|字|位|元|米|厘米|分|秒|时|千克|克|本|张|条|道|题|倍))",
+        replace_open_open,
+        cleaned,
+    )
+    return _normalize_question_spacing(cleaned), answers
+
+
+def _is_unbalanced_ocr_answer_candidate(candidate: str, question_text: str, start: int, end: int) -> bool:
+    if not candidate:
+        return False
+    if _SCORE_CANDIDATE_RE.match(candidate) or len(candidate) > 16:
+        return False
+    if re.search(r"[。！？?？:：;；]", candidate):
+        return False
+    if _NUMERIC_CANDIDATE_RE.match(candidate) or _CHINESE_NUMERAL_CANDIDATE_RE.match(candidate):
+        return _has_fill_answer_context(question_text, start, end)
+    return False
+
+
 def _normalize_embedded_answer(value: str) -> str:
     candidate = re.sub(r"\s+", "", value or "")
+    candidate = re.sub(r"^([A-Da-d])[.．。]$", r"\1", candidate)
+    candidate = re.sub(r"^([A-Ea-eTtFf])[.．。]$", r"\1", candidate)
+    if re.fullmatch(r"[A-Ea-eTtFf]", candidate):
+        return candidate.upper()
     if candidate in {"x", "X", "✕", "✖"}:
         return "×"
     if candidate == "✓":
@@ -405,7 +453,9 @@ def _is_embedded_answer_candidate(candidate: str, question_text: str, start: int
         return False
     if _looks_like_section_marker(candidate, question_text, start, end):
         return False
-    if re.fullmatch(r"[A-Da-d]", candidate):
+    if re.fullmatch(r"[A-Ea-e]", candidate):
+        return True
+    if re.fullmatch(r"[TtFf]", candidate):
         return True
     if candidate in {"√", "×", "对", "错"}:
         return True
@@ -447,6 +497,8 @@ def _looks_like_section_marker(candidate: str, question_text: str, start: int, e
         return False
     previous = _nearest_non_space(question_text[:start], reverse=True)
     next_char = _nearest_non_space(question_text[end:], reverse=False)
+    if next_char and _ANSWER_CONTEXT_NEXT_RE.match(next_char):
+        return False
     if not next_char or not re.match(r"[\u4e00-\u9fffA-Za-z]", next_char):
         return False
     return previous not in _ANSWER_CONTEXT_PREVIOUS

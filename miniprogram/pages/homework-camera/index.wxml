@@ -1,0 +1,26 @@
+<view class="camera-page">
+  <camera class="camera-view" device-position="back" flash="{{flashMode}}" />
+  <view class="camera-overlay">
+    <view class="camera-topbar">
+      <button class="camera-icon-button" bindtap="handleClose">‹</button>
+      <text class="camera-title">拍整页作业</text>
+    </view>
+    <view class="camera-frame {{levelClass}}">
+      <view class="camera-grid">
+        <view class="grid-line grid-line-v grid-line-v-left"></view>
+        <view class="grid-line grid-line-v grid-line-v-right"></view>
+        <view class="grid-line grid-line-h grid-line-h-top"></view>
+        <view class="grid-line grid-line-h grid-line-h-bottom"></view>
+      </view>
+      <view class="level-hint" data-default-hint="请将手机放平拍摄">
+        <text class="level-icon">{{levelIcon}}</text>
+        <text class="level-text">{{levelHint}}</text>
+      </view>
+    </view>
+    <view class="camera-footer">
+      <button class="album-button" bindtap="handleChooseAlbum">相册</button>
+      <button class="shutter-button" bindtap="handleTakePhoto" loading="{{capturing}}"></button>
+      <view class="footer-spacer"></view>
+    </view>
+  </view>
+</view>

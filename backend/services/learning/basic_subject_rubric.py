@@ -18,8 +18,10 @@ RUBRIC_OUTCOMES = {"correct", "partial", "wrong", "needs_manual_confirm"}
 CANONICAL_MISCONCEPTION_TAGS = {
     "english_past_tense_missing",
     "english_form_uncertain",
+    "english_answer_key_missing",
     "chinese_answer_missing",
     "chinese_evidence_missing",
+    "chinese_answer_key_missing",
     "general_needs_evidence",
 }
 
@@ -191,6 +193,8 @@ def _fallback_evaluate(context: BasicSubjectRubricContext) -> BasicSubjectRubric
 def _fallback_english(context: BasicSubjectRubricContext) -> BasicSubjectRubricResult:
     answer = _normalize_answer(context.child_answer)
     expected = _infer_english_expected_answer(context)
+    if expected is None and _looks_like_objective_language_answer(context.child_answer):
+        return _needs_manual_result(context, reason="answer_key_missing")
     scores = {"task_alignment": 1, "form_accuracy": 0, "answer_completeness": 1}
     if expected and answer == expected:
         scores["form_accuracy"] = 2
@@ -231,6 +235,8 @@ def _fallback_english(context: BasicSubjectRubricContext) -> BasicSubjectRubricR
 
 def _fallback_chinese(context: BasicSubjectRubricContext) -> BasicSubjectRubricResult:
     answer = context.child_answer.strip()
+    if _looks_like_objective_language_answer(answer):
+        return _needs_manual_result(context, reason="answer_key_missing")
     if _is_unclear_answer(answer):
         return BasicSubjectRubricResult(
             outcome="wrong",
@@ -344,6 +350,10 @@ def _answer_matches_chinese_question_type(question: str, answer: str) -> bool:
 def _is_unclear_answer(answer: str) -> bool:
     normalized = answer.strip()
     return normalized in {"", "不知道", "不会", "不懂", "没写", "无"} or len(normalized) <= 1
+
+
+def _looks_like_objective_language_answer(answer: str) -> bool:
+    return bool(re.fullmatch(r"[A-Ea-eTtFf]|[√✓×xX]|对|错", (answer or "").strip()))
 
 
 def _normalize_subject(subject: str | None) -> str:

@@ -26,8 +26,9 @@
 - `v0.2-product-architecture-optimization-plan.md`: v0.2 产品架构优化方案，定义真实手机私测安全、拍照可靠性、Graph 幂等、统一鉴权、可观测性、评测门禁和长期平台化演进。
 - `v0.2-miniprogram-information-architecture-plan.md`: v0.2 小程序信息架构与页面收敛方案，定义学习页、提交确认页、陪练页、家长页和设置页从工程演示页面收敛为真机私测产品页面的分阶段计划。
 - `v0.2-local-testing-baseline.md`: 备案期间的本地测试基线，定义 deepseek-v4-flash、本地拍照 OCR 草稿、多题拆分、确认页和模型调用观测的当前收口边界。
-- `v0.2-education-ocr-agent-chain-plan.md`: v0.2 教育 OCR 能力路由与拍照判题整改方案，定义按 `PaperCut / PaperOcr / PaperStructed / OralCalculation / QuestionOcr / Formula` 自动路由的拍照判题链路、统一题目结构、异步复核、前端题框状态和评测指标。
-- `v0.2-education-ocr-routing-development-plan.md`: v0.2 教育 OCR 能力路由开发计划，按 raw OCR 对比、`EducationOcrRouter`、Provider 集成、`PaperStructed` 解析、API 合同、持久化、小程序叠框、异步复核、评测指标和配置文档拆分可执行任务。
+- `v0.2-education-ocr-agent-chain-plan.md`: v0.2 教育 OCR 能力路由与拍照判题整改方案，定义 OpenCV 扶正图作为 OCR 输入和前端叠框唯一图像基准，并覆盖 `PaperStructed` 优先、`PaperCut/PaperOcr` 兜底、`OralCalculation` 只做口算专用判题、`QuestionOcr/Formula` 单题复核的拍照判题链路、统一题目结构、异步复核、前端题框状态和评测指标。
+- `v0.2-education-ocr-routing-development-plan.md`: v0.2 教育 OCR 能力路由开发计划，按 raw OCR 对比、`EducationOcrRouter`、Provider 集成、`PaperStructed` 优先路由与解析、API 合同、持久化、小程序叠框、异步复核、评测指标和配置文档拆分可执行任务。
+- `v0.2-question-type-routing-layer-plan.md`: v0.2 题型路由层规划，定义 OCR 后按口算、比较符号、判断、选择、填空和应用题分派到确定性判题、数学智能体或学科 rubric 的统一链路。
 
 ## 后续文档规划
 
