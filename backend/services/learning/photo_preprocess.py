@@ -442,6 +442,8 @@ def _column_ranges(mask) -> list[tuple[int, int]]:
 
     min_x = int(active_columns[0])
     max_x = int(active_columns[-1]) + 1
+    if width < 640:
+        return [(min_x, max_x)]
     if max_x - min_x < width * 0.45:
         return [(min_x, max_x)]
 
@@ -467,7 +469,8 @@ def _column_ranges(mask) -> list[tuple[int, int]]:
         return [(min_x, max_x)]
 
     ranges = [(min_x, gap_left), (gap_right, max_x)]
-    filtered = [(left, right) for left, right in ranges if right - left >= width * 0.12]
+    min_column_width = max(220, int(width * 0.12))
+    filtered = [(left, right) for left, right in ranges if right - left >= min_column_width]
     if not filtered:
         return [(min_x, max_x)]
     return filtered
@@ -496,7 +499,7 @@ def _row_groups(mask) -> list[tuple[int, int]]:
     start: int | None = None
     min_height = max(14, height // 65)
     previous_bottom: int | None = None
-    merge_gap = max(48, min(74, height // 14))
+    merge_gap = max(60, min(74, height // 14))
     for top, bottom in line_groups:
         if start is None:
             start = top

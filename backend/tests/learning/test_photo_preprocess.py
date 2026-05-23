@@ -136,6 +136,17 @@ def test_analyze_homework_photo_splits_two_column_numbered_questions() -> None:
     )
 
 
+def test_analyze_homework_photo_does_not_split_narrow_single_column_gaps() -> None:
+    image = _blank(1300, 900)
+    for y, number in ((150, "1."), (420, "2.")):
+        cv2.putText(image, f"{number} 48 / 6 = ?", (160, y), cv2.FONT_HERSHEY_SIMPLEX, 1.3, (20, 20, 20), 4)
+        cv2.putText(image, "Answer: 8", (200, y + 78), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (40, 40, 40), 3)
+
+    result = analyze_homework_photo(_jpeg_bytes(image), filename="single-column-gap.jpg")
+
+    assert result.region_count == 2
+
+
 def test_analyze_homework_photo_perspective_corrects_skewed_page() -> None:
     page = _blank(900, 1200)
     cv2.rectangle(page, (70, 80), (830, 1120), (230, 230, 226), thickness=3)
