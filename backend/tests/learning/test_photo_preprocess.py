@@ -5,6 +5,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+from songguo.backend.services.learning import photo_preprocess
 from songguo.backend.services.learning.photo_preprocess import analyze_homework_photo
 
 
@@ -202,6 +203,45 @@ def test_analyze_homework_photo_scanner_mode_preserves_a4_page_ratio() -> None:
     assert result.processed_y == 0
 
 
+def test_analyze_homework_photo_uses_bright_page_mask_for_landscape_a4_corners() -> None:
+    page = _blank(1400, 990)
+    cv2.rectangle(page, (50, 50), (1350, 940), (220, 220, 216), thickness=3)
+    for index, x in enumerate((140, 520, 900), start=1):
+        cv2.putText(page, f"{index}. Listen and choose", (x, 220), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (25, 25, 25), 3)
+        cv2.putText(page, "Answer: A", (x, 300), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (35, 35, 35), 2)
+
+    canvas = np.full((900, 1400, 3), (130, 130, 124), dtype=np.uint8)
+    source = np.float32([[0, 0], [1399, 0], [1399, 989], [0, 989]])
+    target = np.float32([[20, 95], [1320, 30], [1375, 850], [70, 880]])
+    matrix = cv2.getPerspectiveTransform(source, target)
+    warped = cv2.warpPerspective(page, matrix, (1400, 900))
+    mask = cv2.warpPerspective(np.full((990, 1400), 255, dtype=np.uint8), matrix, (1400, 900))
+    canvas[mask > 0] = warped[mask > 0]
+
+    result = analyze_homework_photo(_jpeg_bytes(canvas), filename="landscape-a4-corners.jpg")
+
+    assert result.source == "opencv_document_perspective_v0.3"
+    preview = cv2.imdecode(np.frombuffer(result.preview_content, np.uint8), cv2.IMREAD_COLOR)
+    assert preview is not None
+    height, width = preview.shape[:2]
+    assert width > height
+    assert abs((width / height) - np.sqrt(2)) < 0.06
+
+
+def test_analyze_homework_photo_rejects_perspective_candidate_with_residual_text_skew(monkeypatch) -> None:
+    image = _blank(900, 1200)
+    cv2.rectangle(image, (120, 140), (780, 1060), (230, 230, 226), thickness=3)
+    for y in (330, 460, 590, 720):
+        cv2.putText(image, "1. 2030-03-01 before date is ?", (180, y), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (25, 25, 25), 2)
+    bad_quad = np.float32([[160, 80], [770, 160], [840, 1120], [70, 1030]])
+
+    monkeypatch.setattr(photo_preprocess, "_find_document_quad", lambda _image: bad_quad)
+
+    result = analyze_homework_photo(_jpeg_bytes(image), filename="bad-perspective-candidate.jpg")
+
+    assert result.source != "opencv_document_perspective_v0.3"
+
+
 def test_analyze_homework_photo_selects_portrait_orientation_candidate() -> None:
     page = _blank(900, 1200)
     cv2.rectangle(page, (70, 80), (830, 1120), (230, 230, 226), thickness=3)
@@ -214,6 +254,60 @@ def test_analyze_homework_photo_selects_portrait_orientation_candidate() -> None
 
     assert result.processed_height > result.processed_width
     assert result.region_count >= 3
+    assert "orientation" in result.source
+
+
+def test_analyze_homework_photo_keeps_far_away_portrait_a4_upright_with_grid_lines() -> None:
+    page = _blank(620, 880)
+    cv2.rectangle(page, (20, 20), (600, 860), (230, 230, 226), thickness=2)
+    cv2.putText(page, "1. draw clock hands", (80, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (25, 25, 25), 2)
+    for origin_x in (80, 330):
+        origin_y = 150
+        grid_width = 220
+        grid_height = 430
+        cv2.rectangle(
+            page,
+            (origin_x, origin_y),
+            (origin_x + grid_width, origin_y + grid_height),
+            (40, 40, 40),
+            thickness=2,
+        )
+        for column in range(1, 10):
+            x = origin_x + column * grid_width // 10
+            cv2.line(page, (x, origin_y), (x, origin_y + grid_height), (30, 30, 30), 2)
+        for row in range(1, 3):
+            y = origin_y + row * grid_height // 3
+            cv2.line(page, (origin_x, y), (origin_x + grid_width, y), (80, 80, 80), 1)
+    cv2.putText(page, "5. word problem text text text", (80, 650), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (25, 25, 25), 2)
+
+    canvas = np.full((1440, 754, 3), (128, 128, 122), dtype=np.uint8)
+    source = np.float32([[0, 0], [619, 0], [619, 879], [0, 879]])
+    target = np.float32([[145, 335], [585, 345], [585, 965], [130, 1000]])
+    matrix = cv2.getPerspectiveTransform(source, target)
+    warped = cv2.warpPerspective(page, matrix, (754, 1440))
+    mask = cv2.warpPerspective(np.full((880, 620), 255, dtype=np.uint8), matrix, (754, 1440))
+    canvas[mask > 0] = warped[mask > 0]
+
+    result = analyze_homework_photo(_jpeg_bytes(canvas), filename="far-a4-grid.jpg")
+
+    assert result.source == "opencv_document_perspective_v0.3"
+    assert result.processed_height > result.processed_width
+
+
+def test_analyze_homework_photo_selects_landscape_orientation_candidate() -> None:
+    page = _blank(1400, 900)
+    cv2.rectangle(page, (70, 70), (1330, 830), (230, 230, 226), thickness=3)
+    for index, x in enumerate((140, 520, 900), start=1):
+        cv2.putText(page, f"{index}. Listen and choose", (x, 220), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (25, 25, 25), 3)
+        cv2.putText(page, "Answer: A", (x, 300), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (35, 35, 35), 2)
+    for y in (440, 600):
+        cv2.line(page, (120, y), (1280, y), (40, 40, 40), 2)
+    rotated = cv2.rotate(page, cv2.ROTATE_90_CLOCKWISE)
+
+    result = analyze_homework_photo(_jpeg_bytes(rotated), filename="landscape-rotated-homework.jpg")
+
+    assert result.processed_width > result.processed_height
+    assert result.region_count >= 1
     assert "orientation" in result.source
 
 

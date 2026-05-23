@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 
 A4_ASPECT_RATIO = math.sqrt(2.0)
+PORTRAIT_TO_LANDSCAPE_ROTATION_PENALTY = 16.0
 
 
 class ImageRegion(BaseModel):
@@ -145,7 +146,7 @@ def _best_document_candidate(image):
         candidate_height, candidate_width = working.shape[:2]
         orientation_penalty = penalty
         if label != "original" and original_height >= original_width and candidate_width > candidate_height:
-            orientation_penalty += 25.0
+            orientation_penalty += PORTRAIT_TO_LANDSCAPE_ROTATION_PENALTY
         candidates.append(
             _PhotoCandidate(
                 image=working,
@@ -162,7 +163,7 @@ def _orientation_candidates(image):
     return [
         ("original", image, 0.0),
         ("orientation_90_ccw", cv2.rotate(image, cv2.ROTATE_90_COUNTERCLOCKWISE), 0.8),
-        ("orientation_180", cv2.rotate(image, cv2.ROTATE_180), 1.1),
+        ("orientation_180", cv2.rotate(image, cv2.ROTATE_180), 28.0),
         ("orientation_90_cw", cv2.rotate(image, cv2.ROTATE_90_CLOCKWISE), 0.8),
     ]
 
@@ -209,7 +210,50 @@ def _document_candidate_score(image, *, source: str) -> float:
         score += 3.0
     if source == "opencv_document_perspective_v0.3":
         score += 5.0
+    score += _upright_line_orientation_score(gray[top:bottom, left:right]) * 12.0
     return score
+
+
+def _upright_line_orientation_score(gray_crop) -> float:
+    height, width = gray_crop.shape[:2]
+    if min(width, height) < 160:
+        return 0.0
+    blurred = cv2.GaussianBlur(gray_crop, (3, 3), 0)
+    edges = cv2.Canny(blurred, 50, 150)
+    lines = cv2.HoughLinesP(
+        edges,
+        1,
+        np.pi / 180,
+        threshold=max(40, min(width, height) // 12),
+        minLineLength=max(40, min(width, height) // 10),
+        maxLineGap=20,
+    )
+    if lines is None:
+        return 0.0
+
+    horizontal = 0.0
+    vertical = 0.0
+    diagonal = 0.0
+    min_length = max(30.0, min(width, height) * 0.05)
+    for x1, y1, x2, y2 in lines[:, 0, :]:
+        dx = int(x2) - int(x1)
+        dy = int(y2) - int(y1)
+        length = math.hypot(dx, dy)
+        if length < min_length:
+            continue
+        angle = abs(math.degrees(math.atan2(dy, dx)))
+        angle = min(angle, 180.0 - angle)
+        if angle <= 18.0:
+            horizontal += length
+        elif angle >= 72.0:
+            vertical += length
+        else:
+            diagonal += length * 0.25
+
+    total = horizontal + vertical + diagonal
+    if total <= 0.0:
+        return 0.0
+    return max(-1.0, min(1.0, (horizontal - vertical) / total))
 
 
 def _warp_document_if_possible(image):
@@ -221,6 +265,9 @@ def _warp_document_if_possible(image):
         return None
     height, width = warped.shape[:2]
     if min(width, height) < 240:
+        return None
+    residual_skew = _estimate_document_skew_angle(warped)
+    if residual_skew is not None and abs(residual_skew) > 6.0:
         return None
     return warped
 
@@ -316,6 +363,9 @@ def _find_document_quad(image):
     height, width = image.shape[:2]
     if height <= 0 or width <= 0:
         return None
+    bright_quad = _find_document_quad_from_bright_mask(image)
+    if bright_quad is not None:
+        return bright_quad
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     blurred = cv2.GaussianBlur(gray, (5, 5), 0)
     edges = cv2.Canny(blurred, 40, 130)
@@ -347,6 +397,65 @@ def _find_document_quad(image):
     return best_quad
 
 
+def _find_document_quad_from_bright_mask(image):
+    height, width = image.shape[:2]
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+    otsu_threshold, _mask = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    base_threshold = max(120, min(235, int(otsu_threshold)))
+    thresholds = _unique_thresholds(
+        [
+            max(base_threshold, min(235, int(otsu_threshold) + 25)),
+            max(base_threshold, 180),
+            max(base_threshold, 190),
+            base_threshold,
+        ]
+    )
+    for threshold in thresholds:
+        mask = np.where(blurred >= threshold, 255, 0).astype(np.uint8)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((21, 21), np.uint8), iterations=2)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((9, 9), np.uint8), iterations=1)
+        quad = _find_document_quad_from_mask(mask, image_area=float(width * height))
+        if quad is not None:
+            return quad
+    return None
+
+
+def _unique_thresholds(values: list[int]) -> list[int]:
+    ordered: list[int] = []
+    for value in values:
+        threshold = max(0, min(255, int(value)))
+        if threshold not in ordered:
+            ordered.append(threshold)
+    return ordered
+
+
+def _find_document_quad_from_mask(mask, *, image_area: float):
+    contours, _hierarchy = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not contours:
+        return None
+
+    for contour in sorted(contours, key=cv2.contourArea, reverse=True)[:10]:
+        area = float(cv2.contourArea(contour))
+        if area < image_area * 0.18 or area > image_area * 0.985:
+            continue
+        hull = cv2.convexHull(contour)
+        perimeter = cv2.arcLength(hull, True)
+        for epsilon_ratio in (0.015, 0.02, 0.03, 0.045, 0.06, 0.08):
+            approx = cv2.approxPolyDP(hull, epsilon_ratio * perimeter, True)
+            if len(approx) != 4 or not cv2.isContourConvex(approx):
+                continue
+            quad = approx.reshape(4, 2).astype("float32")
+            if _valid_document_quad(quad, image_area=image_area):
+                return quad
+
+        rect = cv2.minAreaRect(contour)
+        quad = cv2.boxPoints(rect).astype("float32")
+        if _valid_document_quad(quad, image_area=image_area):
+            return quad
+    return None
+
+
 def _valid_document_quad(quad, *, image_area: float) -> bool:
     area = abs(float(cv2.contourArea(quad.astype("float32"))))
     if area < image_area * 0.18:
@@ -360,7 +469,7 @@ def _valid_document_quad(quad, *, image_area: float) -> bool:
     if min_side < 120:
         return False
     aspect = max(top_width, bottom_width) / max(1.0, max(left_height, right_height))
-    return 0.35 <= aspect <= 1.35
+    return 0.35 <= aspect <= 1.75
 
 
 def _order_quad_points(points):

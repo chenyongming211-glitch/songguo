@@ -49,6 +49,14 @@ def route_math_question_type(
             0.0,
             _evidence("empty_question", ocr_evidence),
         )
+    if _has_choice_options(question) and answer and not re.fullmatch(r"[A-Da-d]", answer):
+        return _route(
+            MathQuestionKind.CHOICE,
+            "math_choice",
+            "manual_confirm",
+            0.82,
+            _evidence("choice_answer_not_option_letter", ocr_evidence),
+        )
     if _looks_like_choice_item(question, answer):
         return _route(
             MathQuestionKind.CHOICE,
@@ -56,6 +64,14 @@ def route_math_question_type(
             "deterministic",
             0.88,
             _evidence("choice_options_detected", ocr_evidence),
+        )
+    if answer and "解题过程" in question and _looks_like_word_problem(question):
+        return _route(
+            MathQuestionKind.WORD_PROBLEM,
+            "math_word_problem",
+            "math_gateway",
+            0.78,
+            _evidence("word_problem_language_detected", ocr_evidence),
         )
     if _looks_like_vertical_calculation_block(question):
         strategy = (
@@ -109,6 +125,14 @@ def route_math_question_type(
             "deterministic",
             0.9,
             _evidence("true_false_answer_mark", ocr_evidence),
+        )
+    if _looks_like_calendar_fill_blank_noise(question, answer):
+        return _route(
+            MathQuestionKind.FILL_BLANK,
+            "math_fill_blank",
+            "manual_confirm",
+            0.76,
+            _evidence("calendar_fill_blank_ocr_noise", ocr_evidence),
         )
     if _looks_like_uncertain_grouped_fill_blank(question, answer):
         return _route(
@@ -188,15 +212,21 @@ def _evidence(*values: str) -> list[str]:
 
 
 def _looks_like_grouped_comparison_sign_item(question: str, answer: str) -> bool:
-    return _comparison_pair_count(question) >= 2
+    if _comparison_pair_count(question) < 2:
+        return False
+    return bool(_comparison_answer_parts(answer) or _has_comparison_prompt(question))
 
 
 def _looks_like_comparison_sign_item(question: str, answer: str) -> bool:
     if answer and re.fullmatch(r"[<>＝=≤≥]+", answer):
         return True
-    if any(token in question for token in ("填上“>”“<”或“=”", "填上><或=", "比较大小")):
+    if _has_comparison_prompt(question):
         return True
-    return _comparison_pair_count(question) == 1
+    return False
+
+
+def _has_comparison_prompt(question: str) -> bool:
+    return any(token in question for token in ("填上“>”“<”或“=”", "填上><或=", "比较大小"))
 
 
 def _looks_like_grouped_true_false_block(question: str, answer: str) -> bool:
@@ -206,6 +236,16 @@ def _looks_like_grouped_true_false_block(question: str, answer: str) -> bool:
     numbered_count = len(re.findall(r"(?<!\d)\d+[.．、)]", question))
     answer_mark_count = len(re.findall(r"[√✓Vv×xX对错]", answer))
     return mark_count >= 2 or numbered_count >= 2 or answer_mark_count >= 2
+
+
+def _looks_like_calendar_fill_blank_noise(question: str, answer: str) -> bool:
+    if _blank_count(question) < 2:
+        return False
+    if len(_split_answer_parts(answer)) < 2:
+        return False
+    if not any(token in question for token in ("月历", "日历", "霜降", "立冬", "重阳", "相差", "日期")):
+        return False
+    return _blank_count(question) != len(_split_answer_parts(answer)) or _comparison_pair_count(question) >= 1
 
 
 def _looks_like_grouped_oral_calculation_block(question: str) -> bool:
@@ -255,7 +295,11 @@ def _looks_like_true_false_item(question: str, answer: str) -> bool:
 
 
 def _looks_like_choice_item(question: str, answer: str) -> bool:
-    return bool(re.search(r"[A-D]\.", question)) and (not answer or re.fullmatch(r"[A-Da-d]", answer))
+    return _has_choice_options(question) and (not answer or re.fullmatch(r"[A-Da-d]", answer))
+
+
+def _has_choice_options(question: str) -> bool:
+    return bool(re.search(r"[A-D]\.", question))
 
 
 def _looks_like_uncertain_grouped_fill_blank(question: str, answer: str) -> bool:

@@ -483,7 +483,7 @@ async def create_submission_photo_draft(
     preview_image_path = draft.preview_image_path or ""
     return SubmissionPhotoDraftResponse(
         image_path=image_path,
-        image_refs=[preview_image_path or image_path],
+        image_refs=[image_path],
         preview_image_path=preview_image_path,
         preview_image_url=_photo_preview_url(preview_image_path),
         raw_text=_photo_submission_raw_text_from_draft(draft),

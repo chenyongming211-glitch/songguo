@@ -51,6 +51,18 @@ def test_routes_choice_items() -> None:
     assert route.evaluation_strategy == "deterministic"
 
 
+def test_routes_choice_item_with_non_choice_ocr_answer_to_manual_confirm() -> None:
+    route = route_math_question_type(
+        question_text="世界杯历时( )天。 A.38 B.39 C.40",
+        child_answer="13",
+        ocr_action="RecognizeEduPaperCut",
+    )
+
+    assert route.kind == MathQuestionKind.CHOICE
+    assert route.evaluation_strategy == "manual_confirm"
+    assert route.question_type_id == "math_choice"
+
+
 def test_routes_fill_blank_items() -> None:
     route = route_math_question_type(question_text="87×23的积是( )位数。", child_answer="四")
 
@@ -117,6 +129,20 @@ def test_routes_vertical_calculation_process_block_to_item_split() -> None:
     assert route.kind == MathQuestionKind.VERTICAL_CALCULATION_BLOCK
     assert route.evaluation_strategy == "item_split_required"
     assert route.question_type_id == "math_vertical_calculation_block"
+
+
+def test_routes_word_problem_with_process_equations_as_word_problem_not_split() -> None:
+    route = route_math_question_type(
+        question_text=(
+            "天天参加少年军事体验营，从10月25日开始，到11月15日结束，每天活动"
+            "经费为8元，一共需要多少元的活动经费?(6分) 解题过程：31-25+15=22 22×8=176(元)"
+        ),
+        child_answer="176元",
+    )
+
+    assert route.kind == MathQuestionKind.WORD_PROBLEM
+    assert route.evaluation_strategy == "math_gateway"
+    assert route.question_type_id == "math_word_problem"
 
 
 def test_does_not_route_word_problem_work_steps_as_grouped_oral_calculation() -> None:
@@ -186,6 +212,19 @@ def test_routes_grouped_comparison_block_to_item_split() -> None:
     assert route.kind == MathQuestionKind.GROUPED_COMPARISON_SIGN
     assert route.evaluation_strategy == "item_split_required"
     assert route.question_type_id == "math_grouped_comparison_sign"
+
+
+def test_routes_calendar_fill_blanks_without_comparison_context_not_as_comparison_split() -> None:
+    route = route_math_question_type(
+        question_text=(
+            "请根据2028年10月的月历表答下面问题。28 ( )0 30 ( )1 "
+            "10月23日是霜降，再过15天是立冬，立冬是( )月( )日；与12月1日相差( )天。"
+        ),
+        child_answer="11；7；36",
+    )
+
+    assert route.kind != MathQuestionKind.GROUPED_COMPARISON_SIGN
+    assert route.evaluation_strategy == "manual_confirm"
 
 
 def test_routes_oral_calculation_from_ocr_action_evidence() -> None:

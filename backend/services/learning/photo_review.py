@@ -274,7 +274,8 @@ class VisionOCRProvider:
 class AliyunEduOCRProvider:
     """Aliyun OCR education-scenario provider behind an explicit opt-in seam."""
 
-    use_preprocessed_content = True
+    use_preprocessed_content = False
+    use_display_bboxes = False
 
     def __init__(
         self,
@@ -728,13 +729,20 @@ class PhotoReviewService:
         image_path = self._save_artifact(filename, content)
         analysis = _analyze_upload(content, filename=filename, content_type=content_type)
         preview_image_path = self._save_processed_artifact(filename, analysis)
+        use_processed_input = _provider_uses_preprocessed_content(self.ocr_provider)
         started_at = perf_counter()
         draft = self._recognize(
             _ocr_input_content(self.ocr_provider, original_content=content, analysis=analysis),
             filename=filename,
-            region_hints=_processed_region_hints(analysis),
+            region_hints=_region_hints_for_ocr_input(analysis, use_processed_input=use_processed_input),
         )
-        draft = _attach_preprocess_analysis(draft, analysis, preview_image_path=preview_image_path)
+        draft = _attach_preprocess_analysis(
+            draft,
+            analysis,
+            preview_image_path=preview_image_path,
+            use_processed_geometry=use_processed_input,
+            keep_item_bboxes=_provider_uses_display_bboxes(self.ocr_provider),
+        )
         self._record_ocr_observation(
             child_id=child_id,
             image_path=image_path,
@@ -764,13 +772,20 @@ class PhotoReviewService:
         image_path = self._save_artifact(filename, content)
         analysis = _analyze_upload(content, filename=filename, content_type=content_type)
         preview_image_path = self._save_processed_artifact(filename, analysis)
+        use_processed_input = _provider_uses_preprocessed_content(self.ocr_provider)
         started_at = perf_counter()
         draft = await self._recognize_async(
             _ocr_input_content(self.ocr_provider, original_content=content, analysis=analysis),
             filename=filename,
-            region_hints=_processed_region_hints(analysis),
+            region_hints=_region_hints_for_ocr_input(analysis, use_processed_input=use_processed_input),
         )
-        draft = _attach_preprocess_analysis(draft, analysis, preview_image_path=preview_image_path)
+        draft = _attach_preprocess_analysis(
+            draft,
+            analysis,
+            preview_image_path=preview_image_path,
+            use_processed_geometry=use_processed_input,
+            keep_item_bboxes=_provider_uses_display_bboxes(self.ocr_provider),
+        )
         self._record_ocr_observation(
             child_id=child_id,
             image_path=image_path,
@@ -798,13 +813,20 @@ class PhotoReviewService:
         image_path = self._save_artifact(filename, content)
         analysis = _analyze_upload(content, filename=filename, content_type=content_type)
         preview_image_path = self._save_processed_artifact(filename, analysis)
+        use_processed_input = _provider_uses_preprocessed_content(self.ocr_provider)
         started_at = perf_counter()
         draft = await self._recognize_async(
             _ocr_input_content(self.ocr_provider, original_content=content, analysis=analysis),
             filename=filename,
-            region_hints=_processed_region_hints(analysis),
+            region_hints=_region_hints_for_ocr_input(analysis, use_processed_input=use_processed_input),
         )
-        draft = _attach_preprocess_analysis(draft, analysis, preview_image_path=preview_image_path)
+        draft = _attach_preprocess_analysis(
+            draft,
+            analysis,
+            preview_image_path=preview_image_path,
+            use_processed_geometry=use_processed_input,
+            keep_item_bboxes=_provider_uses_display_bboxes(self.ocr_provider),
+        )
         self._record_ocr_observation(
             child_id=child_id,
             image_path=image_path,
@@ -1062,7 +1084,16 @@ def _attach_preprocess_analysis(
     analysis: HomeworkPhotoAnalysis,
     *,
     preview_image_path: str = "",
+    use_processed_geometry: bool = True,
+    keep_item_bboxes: bool = True,
 ) -> OCRDraft:
+    region_source = (
+        analysis.processed_question_regions
+        if use_processed_geometry
+        else analysis.question_regions
+    )
+    if not region_source:
+        region_source = analysis.processed_question_regions or analysis.question_regions
     regions = [
         ImageBBox(
             x=region.x,
@@ -1070,14 +1101,14 @@ def _attach_preprocess_analysis(
             width=region.width,
             height=region.height,
         )
-        for region in (analysis.processed_question_regions or analysis.question_regions)
+        for region in region_source
     ]
     items = list(draft.items)
     if items:
         mapped_items = []
         for index, item in enumerate(items):
-            bbox = item.bbox
-            if bbox is None and regions and len(regions) == len(items):
+            bbox = item.bbox if keep_item_bboxes else None
+            if keep_item_bboxes and bbox is None and regions and len(regions) == len(items):
                 bbox = regions[index]
             mapped_items.append(item.model_copy(update={"bbox": bbox}))
         items = mapped_items
@@ -1120,8 +1151,30 @@ def _ocr_input_content(
     original_content: bytes,
     analysis: HomeworkPhotoAnalysis,
 ) -> bytes:
-    _ = provider
+    if not _provider_uses_preprocessed_content(provider):
+        return original_content
     return analysis.processed_content or original_content
+
+
+def _provider_uses_preprocessed_content(provider: object) -> bool:
+    return bool(getattr(provider, "use_preprocessed_content", True))
+
+
+def _provider_uses_display_bboxes(provider: object) -> bool:
+    return bool(getattr(provider, "use_display_bboxes", True))
+
+
+def _region_hints_for_ocr_input(
+    analysis: HomeworkPhotoAnalysis,
+    *,
+    use_processed_input: bool,
+) -> list[ImageBBox]:
+    if use_processed_input:
+        return _processed_region_hints(analysis)
+    return [
+        ImageBBox(x=region.x, y=region.y, width=region.width, height=region.height)
+        for region in analysis.question_regions
+    ]
 
 
 def _looks_like_image_upload(*, filename: str, content_type: str) -> bool:
@@ -1586,6 +1639,9 @@ def _parse_aliyun_paper_structed(data: dict[str, Any], *, action: str) -> OCRDra
             question = _first_string(subject, "text", "content", "question", "stem")
             if not question:
                 continue
+            child_answer = _first_answer_from_structed_subject(subject)
+            if not child_answer:
+                question, child_answer = _extract_inline_answer_from_structed_question(question)
             item_confidence = _safe_aliyun_probability(
                 subject.get("prob") or subject.get("confidence")
             )
@@ -1595,7 +1651,7 @@ def _parse_aliyun_paper_structed(data: dict[str, Any], *, action: str) -> OCRDra
                 OCRItemDraft(
                     item_index=len(items) + 1,
                     question_text=question,
-                    child_answer=_first_answer_from_structed_subject(subject),
+                    child_answer=child_answer,
                     confidence=item_confidence,
                     bbox=_bbox_from_structed_subject(subject, data=data),
                     source_action=action,
@@ -1749,8 +1805,73 @@ def _first_answer_from_structed_subject(subject: dict[str, Any]) -> str:
             for answer in answers
             if isinstance(answer, dict)
         ]
-        return "；".join(value for value in values if value)
+        joined = "；".join(value for value in values if value)
+        if joined:
+            return joined
     return _first_string(subject, "answer", "child_answer", "student_answer")
+
+
+def _extract_inline_answer_from_structed_question(question: str) -> tuple[str, str]:
+    answer_matches: list[tuple[int, int, str, str]] = []
+    for match in re.finditer(r"[（(]\s*([^（）()]{1,8})\s*[）)]", question or ""):
+        candidate = _normalize_structed_inline_answer(match.group(1))
+        if not candidate:
+            continue
+        if not _has_structed_inline_answer_context(
+            question,
+            start=match.start(),
+            end=match.end(),
+            candidate=candidate,
+        ):
+            continue
+        replacement = "（ ）" if match.group(0).startswith("（") else "( )"
+        answer_matches.append((match.start(), match.end(), replacement, candidate))
+
+    if not answer_matches:
+        return question, ""
+
+    cleaned = question
+    for start, end, replacement, _candidate in reversed(answer_matches):
+        cleaned = f"{cleaned[:start]}{replacement}{cleaned[end:]}"
+    answers = "；".join(candidate for *_span, candidate in answer_matches)
+    return cleaned, answers
+
+
+def _normalize_structed_inline_answer(value: str) -> str:
+    text = re.sub(r"\s+", "", value or "").strip("()（）")
+    text = text.rstrip(".．。")
+    if re.fullmatch(r"[A-Da-d]", text):
+        return text.upper()
+    if text in {"√", "✓", "V", "v", "对"}:
+        return "√"
+    if text in {"×", "x", "X", "✕", "✖", "错"}:
+        return "×"
+    return ""
+
+
+def _has_structed_inline_answer_context(
+    question: str,
+    *,
+    start: int,
+    end: int,
+    candidate: str,
+) -> bool:
+    previous = _nearest_non_space_char(question[:start], reverse=True)
+    next_char = _nearest_non_space_char(question[end:], reverse=False)
+    choice_context = {"是", "为", "在", "选", "择", "案", "因", "到", "属", "填", "应", "可"}
+    if re.fullmatch(r"[A-D]", candidate):
+        return previous in choice_context
+    if candidate in {"√", "×"}:
+        return bool(previous) and (previous in choice_context or not next_char or next_char in "。；;，,、.!！?？")
+    return False
+
+
+def _nearest_non_space_char(value: str, *, reverse: bool) -> str:
+    chars = reversed(value) if reverse else iter(value)
+    for char in chars:
+        if not char.isspace():
+            return char
+    return ""
 
 
 def _paper_structed_subject_metadata(*, part: dict[str, Any], subject: dict[str, Any]) -> dict[str, Any]:
@@ -1837,8 +1958,8 @@ def _aliyun_edu_ocr_action(scene: str) -> str:
         "paper_structed": "RecognizeEduPaperStructed",
         "paper_structured": "RecognizeEduPaperStructed",
         "formula": "RecognizeEduFormula",
-        "auto": "RecognizeEduPaperStructed",
-        "": "RecognizeEduPaperStructed",
+        "auto": "RecognizeEduPaperCut",
+        "": "RecognizeEduPaperCut",
     }.get(normalized, "RecognizeEduPaperCut")
 
 

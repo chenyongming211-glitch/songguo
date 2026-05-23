@@ -124,13 +124,13 @@ def test_aliyun_auto_runs_oral_calculation_for_oral_page_and_preserves_judgement
 
     async def fake_edu_ocr_func(**kwargs):
         actions.append(kwargs["action"])
-        if kwargs["action"] == "RecognizeEduPaperStructed":
+        if kwargs["action"] == "RecognizeEduPaperCut":
             return {
                 "Data": {
-                    "height": 1000,
-                    "width": 1000,
-                    "part_info": [
+                    "page_list": [
                         {
+                            "height": 1000,
+                            "width": 1000,
                             "subject_list": [
                                 {"text": "5×30=", "content_list_info": [{"pos": [{"x": 90, "y": 120}, {"x": 300, "y": 120}, {"x": 300, "y": 170}, {"x": 90, "y": 170}]}]},
                                 {"text": "22×40=", "content_list_info": [{"pos": [{"x": 90, "y": 210}, {"x": 300, "y": 210}, {"x": 300, "y": 260}, {"x": 90, "y": 260}]}]},
@@ -177,9 +177,9 @@ def test_aliyun_auto_runs_oral_calculation_for_oral_page_and_preserves_judgement
 
     draft = asyncio.run(provider.recognize_async(b"\xff\xd8\xff", filename="oral-page.jpg"))
 
-    assert actions == ["RecognizeEduPaperStructed", "RecognizeEduOralCalculation"]
-    assert draft.model == "RecognizeEduPaperStructed+RecognizeEduOralCalculation"
-    assert draft.source == "aliyun_edu_paper_structed_oral_judgement"
+    assert actions == ["RecognizeEduPaperCut", "RecognizeEduOralCalculation"]
+    assert draft.model == "RecognizeEduPaperCut+RecognizeEduOralCalculation"
+    assert draft.source == "aliyun_edu_paper_cut_oral_judgement"
     assert [item.ocr_judgement for item in draft.items] == ["correct", "correct", "wrong"]
     assert [item.correct_answer for item in draft.items] == ["150", "880", "40000"]
 
@@ -880,7 +880,7 @@ def test_aliyun_edu_ocr_provider_hybrid_fallback_merges_paper_ocr_answers_into_p
     assert draft.items[1].bbox == ImageBBox(x=100, y=220, width=700, height=80)
 
 
-def test_aliyun_edu_ocr_provider_records_auto_paper_structed_plan_and_secondary_action() -> None:
+def test_aliyun_edu_ocr_provider_records_configured_paper_structed_plan() -> None:
     actions = []
 
     async def fake_edu_ocr_func(**kwargs):
@@ -937,7 +937,7 @@ def test_aliyun_edu_ocr_provider_records_auto_paper_structed_plan_and_secondary_
         config=AliyunEduOCRConfig(
             access_key_id="ak-id",
             access_key_secret="ak-secret",
-            scene="auto",
+            scene="paper_structed",
             hybrid_text_fallback_min_answer_rate=0.75,
         ),
         client_func=fake_edu_ocr_func,
@@ -945,10 +945,10 @@ def test_aliyun_edu_ocr_provider_records_auto_paper_structed_plan_and_secondary_
 
     draft = asyncio.run(provider.recognize_async(b"\xff\xd8\xff", filename="homework.jpg"))
 
-    assert actions == ["RecognizeEduPaperStructed", "RecognizeEduPaperOcr"]
-    assert draft.model == "RecognizeEduPaperStructed+RecognizeEduPaperOcr"
+    assert actions == ["RecognizeEduPaperStructed"]
+    assert draft.model == "RecognizeEduPaperStructed"
     assert draft.data_json["ocr_plan"]["primary_action"] == "RecognizeEduPaperStructed"
-    assert draft.data_json["ocr_plan"]["secondary_actions"] == ["RecognizeEduPaperOcr"]
+    assert draft.data_json["ocr_plan"]["secondary_actions"] == []
 
 
 def test_aliyun_edu_ocr_provider_similarity_merges_equal_count_items_when_order_differs() -> None:
@@ -1278,7 +1278,7 @@ def test_aliyun_edu_ocr_provider_falls_back_to_paper_ocr_when_paper_cut_is_empty
     assert draft.items[0].child_answer == "8"
 
 
-def test_aliyun_edu_ocr_provider_falls_back_to_paper_cut_when_auto_paper_structed_is_empty() -> None:
+def test_aliyun_edu_ocr_provider_falls_back_to_paper_cut_when_configured_paper_structed_is_empty() -> None:
     actions = []
 
     async def fake_edu_ocr_func(**kwargs):
@@ -1315,7 +1315,7 @@ def test_aliyun_edu_ocr_provider_falls_back_to_paper_cut_when_auto_paper_structe
         config=AliyunEduOCRConfig(
             access_key_id="ak-id",
             access_key_secret="ak-secret",
-            scene="auto",
+            scene="paper_structed",
         ),
         client_func=fake_edu_ocr_func,
     )
@@ -1386,6 +1386,55 @@ def test_aliyun_edu_ocr_provider_parses_paper_structed_subjects_and_answers() ->
     assert draft.items[0].data_json["paper_structed"]["answer_list"] == [{"text": "105"}]
     assert draft.items[0].data_json["paper_structed"]["element_list"][0]["type"] == 0
     assert draft.items[0].quality_warnings == []
+
+
+def test_aliyun_edu_ocr_provider_extracts_inline_answers_from_paper_structed_text() -> None:
+    async def fake_edu_ocr_func(**_kwargs):
+        return {
+            "Data": {
+                "height": 1000,
+                "width": 1000,
+                "part_info": [
+                    {
+                        "part_title": "三、选择。",
+                        "subject_list": [
+                            {
+                                "index": 1,
+                                "type": 1,
+                                "text": "1. 地球公转产生的现象代表的是(C)。A.春分日 B.夏至日 C.冬至日",
+                            },
+                            {
+                                "index": 2,
+                                "type": 1,
+                                "text": "2. 小花家住在(C)。A.甲小区 B.乙小区 C.丙小区",
+                            },
+                            {
+                                "index": 3,
+                                "type": 1,
+                                "text": "3. 小花今年12岁，她只过了3个生日，因为(B)。A.平年 B.2月29日 C.2月28日",
+                            },
+                        ],
+                    }
+                ],
+            }
+        }
+
+    provider = AliyunEduOCRProvider(
+        config=AliyunEduOCRConfig(
+            access_key_id="ak-id",
+            access_key_secret="ak-secret",
+            scene="paper_structed",
+        ),
+        client_func=fake_edu_ocr_func,
+    )
+
+    draft = asyncio.run(provider.recognize_async(b"\xff\xd8\xff", filename="structed-inline.jpg"))
+
+    assert [item.child_answer for item in draft.items] == ["C", "C", "B"]
+    assert "代表的是( )" in draft.items[0].question_text
+    assert "住在( )" in draft.items[1].question_text
+    assert "因为( )" in draft.items[2].question_text
+    assert draft.needs_confirmation is False
 
 
 def test_aliyun_edu_ocr_provider_surfaces_service_errors_without_fallback() -> None:
@@ -1775,7 +1824,7 @@ def test_photo_review_service_preprocesses_image_and_fills_detected_bboxes(tmp_p
     assert preview.shape[:2] == (seen_sizes[0][1], seen_sizes[0][0])
 
 
-def test_photo_review_service_sends_preprocessed_image_to_aliyun_edu_ocr(tmp_path) -> None:
+def test_photo_review_service_sends_original_image_to_aliyun_edu_ocr(tmp_path) -> None:
     image = np.full((1000, 1400, 3), (250, 250, 246), dtype=np.uint8)
     cv2.putText(image, "48 / 6 = ?", (180, 260), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (20, 20, 20), 4)
     cv2.putText(image, "Answer: 8", (180, 360), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (40, 40, 40), 3)
@@ -1818,13 +1867,14 @@ def test_photo_review_service_sends_preprocessed_image_to_aliyun_edu_ocr(tmp_pat
     )
 
     assert seen_contents
-    assert seen_contents[0] != original_content
+    assert seen_contents[0] == original_content
     assert draft.preprocess_source.startswith("opencv_")
     assert draft.preview_image_path
+    assert draft.items[0].bbox is None
     assert draft.items[0].question_text == "48 / 6 = ?"
 
 
-def test_photo_review_service_forces_opencv_preview_as_ocr_input(tmp_path) -> None:
+def test_photo_review_service_respects_provider_original_image_input(tmp_path) -> None:
     image = np.full((1000, 1400, 3), (250, 250, 246), dtype=np.uint8)
     cv2.rectangle(image, (150, 150), (1250, 840), (230, 230, 226), thickness=-1)
     cv2.putText(image, "48 / 6 = ?", (260, 330), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (20, 20, 20), 4)
@@ -1869,9 +1919,8 @@ def test_photo_review_service_forces_opencv_preview_as_ocr_input(tmp_path) -> No
     )
 
     assert seen_contents
-    assert seen_contents[0] != original_content
+    assert seen_contents[0] == original_content
     assert draft.preview_image_path
-    assert seen_contents[0] != Path(draft.preview_image_path).read_bytes()
     assert draft.items[0].bbox == ImageBBox(x=100, y=120, width=760, height=180)
 
 

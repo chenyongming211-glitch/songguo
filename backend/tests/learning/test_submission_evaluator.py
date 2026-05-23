@@ -19,6 +19,25 @@ from songguo.backend.services.learning.store import InMemoryLearningStore
 
 class FixtureMathGateway:
     def analyze(self, *, question_text: str, grade: int, subject: str) -> ProblemAnalysis:
+        if "丙小区" in question_text:
+            return ProblemAnalysis(
+                subject=subject,
+                grade=grade,
+                problem_type="time calculation",
+                knowledge_points=["时间表应用"],
+                target="选择正确小区",
+                final_answer="丙小区",
+                confidence=0.94,
+                source="fixture",
+                solution_steps=[
+                    {
+                        "id": "step_1",
+                        "goal": "根据下午4时停电时间段判断",
+                        "expression": "15:00-16:10",
+                        "result": "丙小区",
+                    }
+                ],
+            )
         if "36" in question_text:
             return ProblemAnalysis(
                 subject=subject,
@@ -98,6 +117,71 @@ def test_evaluate_submission_items_deposits_correct_and_wrong_items() -> None:
         EvidenceType.SUBMISSION_CORRECT,
     }
     assert store.list_wrong_questions("child_001")[0].normalized_question == first.question_text
+
+
+def test_evaluate_submission_items_matches_choice_letter_to_option_text() -> None:
+    store = InMemoryLearningStore()
+    submission = store.create_submission(
+        child_id="child_001",
+        subject="math",
+        grade=3,
+        source_type=SourceType.PHOTO,
+        raw_text="选择题",
+    )
+    item = store.add_submission_item(
+        LearningItem(
+            submission_id=submission.submission_id,
+            child_id="child_001",
+            item_index=1,
+            question_text=(
+                "下面是某日部分小区停电公告，李阿姨下午4时回家，发现家中没电，"
+                "她家在( )。A.甲小区 B.乙小区 C.丙小区"
+            ),
+            child_answer="C",
+        )
+    )
+
+    snapshot = evaluate_submission_items(
+        store=store,
+        submission_id=submission.submission_id,
+        math_gateway=FixtureMathGateway(),
+    )
+
+    judged = snapshot.items[0]
+    assert judged.item_id == item.item_id
+    assert judged.judge_result == JudgeResult.CORRECT
+    assert judged.correct_answer == "丙小区"
+
+
+def test_evaluate_submission_items_defers_choice_item_with_non_choice_ocr_answer() -> None:
+    store = InMemoryLearningStore()
+    submission = store.create_submission(
+        child_id="child_001",
+        subject="math",
+        grade=3,
+        source_type=SourceType.PHOTO,
+        raw_text="选择题",
+    )
+    store.add_submission_item(
+        LearningItem(
+            submission_id=submission.submission_id,
+            child_id="child_001",
+            item_index=1,
+            question_text="世界杯历时( )天。 A.38 B.39 C.40",
+            child_answer="13",
+            data_json={"ocr_action": "RecognizeEduPaperCut"},
+        )
+    )
+
+    snapshot = evaluate_submission_items(
+        store=store,
+        submission_id=submission.submission_id,
+        math_gateway=FixtureMathGateway(),
+    )
+
+    judged = snapshot.items[0]
+    assert judged.judge_result == JudgeResult.NEEDS_MANUAL_CONFIRM
+    assert judged.question_type_id == "math_choice"
 
 
 def test_evaluate_submission_items_records_successful_math_gateway_observability() -> None:

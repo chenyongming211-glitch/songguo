@@ -15,7 +15,7 @@ class EducationOcrAction(StrEnum):
 
 
 SCENE_TO_ACTION = {
-    "auto": EducationOcrAction.PAPER_STRUCTED,
+    "auto": EducationOcrAction.PAPER_CUT,
     "paper_cut": EducationOcrAction.PAPER_CUT,
     "cut": EducationOcrAction.PAPER_CUT,
     "paper_ocr": EducationOcrAction.PAPER_OCR,
@@ -82,6 +82,8 @@ class EducationOcrRouter:
         if signal.primary_action == EducationOcrAction.PAPER_STRUCTED:
             if signal.item_count <= 0:
                 return [EducationOcrAction.PAPER_CUT]
+            if signal.answer_count <= 0:
+                return [EducationOcrAction.PAPER_OCR]
             answer_rate = signal.answer_count / signal.item_count
             min_rate = _min_answer_rate(self.config)
             if answer_rate < min_rate and (signal.raw_text_length < 180 or signal.confidence < 0.7):
@@ -92,6 +94,8 @@ class EducationOcrRouter:
         if signal.primary_action != EducationOcrAction.PAPER_CUT:
             return []
         if signal.item_count <= 0:
+            return [EducationOcrAction.PAPER_OCR]
+        if signal.answer_count <= 0:
             return [EducationOcrAction.PAPER_OCR]
         answer_rate = signal.answer_count / signal.item_count
         min_rate = _min_answer_rate(self.config)

@@ -253,12 +253,13 @@ function buildOverlayItems(resultItems, draftItems) {
   (draftItems || []).forEach((item) => {
     draftsByIndex[Number(item.item_index || 0)] = item;
   });
-  const sourceItems = resultItems && resultItems.length ? resultItems : draftItems || [];
+  const hasResultItems = Boolean(resultItems && resultItems.length);
+  const sourceItems = hasResultItems ? resultItems : draftItems || [];
   return sourceItems
     .map((item, index) => {
       const itemIndex = Number(item.item_index || index + 1);
       const draftItem = draftsByIndex[itemIndex] || {};
-      const style = bboxStyle(item.bbox || draftItem.bbox);
+      const style = bboxStyle(hasResultItems ? item.bbox : draftItem.bbox);
       if (!style) {
         return null;
       }

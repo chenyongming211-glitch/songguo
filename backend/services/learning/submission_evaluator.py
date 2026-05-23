@@ -3,9 +3,11 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 import os
+import re
 from time import perf_counter
 from typing import Any
 
+from songguo.backend.services.learning.answer_matching import answers_match, normalize_answer
 from songguo.backend.services.learning.basic_subject_rubric import (
     BasicSubjectRubricContext,
     BasicSubjectRubricEvaluator,
@@ -210,6 +212,17 @@ def evaluate_submission_items(
         question_type_id = analysis.problem_type
         knowledge_point = analysis.knowledge_point
         correct_answer = reliable_final_answer(analysis)
+        if not judged.correct and _choice_letter_matches_expected_option_text(
+            question_text=item.question_text,
+            child_answer=item.child_answer,
+            expected_answer=correct_answer,
+        ):
+            judged = RuleJudgeResult(
+                determined=True,
+                correct=True,
+                expected_answer=correct_answer,
+                evidence=f"孩子选择 {item.child_answer}，对应选项内容与结构化答案一致。",
+            )
 
         if judged.correct:
             updated_item = store.update_submission_item(
@@ -1006,6 +1019,44 @@ def _judge_item(*, analysis: ProblemAnalysis, child_answer: str) -> RuleJudgeRes
     )
     judged_state = rule_judge_node(state, child_answer=child_answer)
     return RuleJudgeResult.model_validate(judged_state.rule_judge_result or {})
+
+
+def _choice_letter_matches_expected_option_text(
+    *,
+    question_text: str,
+    child_answer: str | None,
+    expected_answer: str | None,
+) -> bool:
+    child_choice = normalize_answer(child_answer).upper()
+    if not re.fullmatch(r"[A-D]", child_choice or ""):
+        return False
+    expected = str(expected_answer or "").strip()
+    if not expected:
+        return False
+    option_text = _choice_options(question_text).get(child_choice, "")
+    if not option_text:
+        return False
+    if answers_match(option_text, expected):
+        return True
+    normalized_option = normalize_answer(option_text)
+    normalized_expected = normalize_answer(expected)
+    return bool(
+        normalized_option
+        and normalized_expected
+        and (normalized_option in normalized_expected or normalized_expected in normalized_option)
+    )
+
+
+def _choice_options(question_text: str) -> dict[str, str]:
+    text = (question_text or "").replace("．", ".").replace("、", ".")
+    matches = list(re.finditer(r"([A-Da-d])\s*[.]\s*(.+?)(?=\s*[A-Da-d]\s*[.]|$)", text))
+    options: dict[str, str] = {}
+    for match in matches:
+        key = match.group(1).upper()
+        value = match.group(2).strip(" 。；;,，")
+        if value:
+            options[key] = value
+    return options
 
 
 def _fallback_misconception_tag(analysis: ProblemAnalysis) -> str:

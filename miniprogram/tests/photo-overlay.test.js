@@ -21,6 +21,10 @@ assert.ok(homeScript.includes("items: (draft && draft.items) || []"), "photo dra
 assert.ok(homeScript.includes("compressHomeworkImage"), "photo entry should compress images before upload");
 assert.ok(homeScript.includes("wx.compressImage"), "photo compression should use the WeChat native compressor when available");
 assert.ok(script.includes("buildOverlayItems"), "submission page should build overlay view models");
+assert.ok(
+  script.includes("hasResultItems"),
+  "submission page should avoid reusing stale draft bboxes after backend results arrive"
+);
 assert.ok(script.includes("bboxStyle"), "submission page should convert normalized bbox to style");
 assert.ok(script.includes("photoImagePath"), "submission page should keep the photo image path");
 assert.ok(

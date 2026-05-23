@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from songguo.backend.services.learning.deeptutor_provider import OrchestratorDraftProvider
 from songguo.backend.services.learning.math_structuring import LLMMathStructurer
+from songguo.backend.services.learning.photo_review import AliyunEduOCRProvider
 from songguo.backend.services.learning.service import build_default_learning_service
 
 
@@ -81,6 +82,14 @@ def test_default_learning_service_wires_llm_math_structurer_when_enabled(monkeyp
     service = build_default_learning_service()
 
     assert isinstance(service.math_gateway.structurer, LLMMathStructurer)
+
+
+def test_default_learning_service_reuses_aliyun_photo_ocr_for_visual_fallback(monkeypatch) -> None:
+    monkeypatch.setenv("SONGGUO_PHOTO_OCR_PROVIDER", "aliyun_edu")
+
+    service = build_default_learning_service()
+
+    assert isinstance(service.visual_fallback_ocr_provider, AliyunEduOCRProvider)
 
 
 def test_default_learning_service_reads_math_structurer_from_dotenv_when_env_not_preloaded(

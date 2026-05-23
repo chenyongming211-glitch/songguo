@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from difflib import SequenceMatcher
 import inspect
 from pathlib import Path
+import re
 from time import perf_counter
 from typing import Any
 
@@ -199,8 +201,8 @@ async def run_visual_fallback_step_async(
             store.record_ai_call(
                 child_id=running_item.child_id,
                 session_id=submission.submission_id,
-                provider=getattr(provider, "provider", "visual_fallback"),
-                model=getattr(provider, "model", "configured_vision_model"),
+                provider=_label_or_default(getattr(provider, "provider", ""), "visual_fallback"),
+                model=_label_or_default(getattr(provider, "model", ""), "configured_vision_model"),
                 operation="submission_visual_fallback.ocr",
                 token_estimate=0,
                 status="error",
@@ -243,6 +245,18 @@ async def run_visual_fallback_step_async(
                 status="needs_manual_confirm",
                 reason="visual_result_incomplete",
                 message="视觉复核仍没有拿到完整题目和孩子答案，请手动确认或重新拍照。",
+                provider=draft.provider,
+                model=draft.model,
+                confidence=draft.confidence,
+            )
+            continue
+        if not _visual_fallback_result_matches_item(running_item, recognized):
+            _set_visual_fallback_state(
+                store=store,
+                item=running_item,
+                status="needs_manual_confirm",
+                reason="visual_result_mismatch",
+                message="视觉复核识别到的题目和原题不一致，请手动确认或重新拍照。",
                 provider=draft.provider,
                 model=draft.model,
                 confidence=draft.confidence,
@@ -482,6 +496,11 @@ def _accepts_region_hints(func: Any) -> bool:
         return False
 
 
+def _label_or_default(value: Any, default: str) -> str:
+    text = str(value or "").strip()
+    return text or default
+
+
 def _record_visual_ocr_call(
     *,
     store: Any,
@@ -495,8 +514,8 @@ def _record_visual_ocr_call(
     store.record_ai_call(
         child_id=item.child_id,
         session_id=submission.submission_id,
-        provider=draft.provider or getattr(provider, "provider", "visual_fallback"),
-        model=draft.model or getattr(provider, "model", "configured_vision_model"),
+        provider=_label_or_default(draft.provider or getattr(provider, "provider", ""), "visual_fallback"),
+        model=_label_or_default(draft.model or getattr(provider, "model", ""), "configured_vision_model"),
         operation="submission_visual_fallback.ocr",
         token_estimate=0,
         status=status,
@@ -579,6 +598,23 @@ def _empty_recognized_item() -> dict[str, Any]:
         "confidence": 0.0,
         "bbox": None,
     }
+
+
+def _visual_fallback_result_matches_item(item: Any, recognized: dict[str, Any]) -> bool:
+    existing = _compact_question_for_match(str(getattr(item, "question_text", "") or ""))
+    candidate = _compact_question_for_match(str(recognized.get("question_text") or ""))
+    if not existing or not candidate:
+        return True
+    if len(existing) < 8 or len(candidate) < 8:
+        return True
+    if existing in candidate or candidate in existing:
+        return True
+    return SequenceMatcher(None, existing, candidate).ratio() >= 0.45
+
+
+def _compact_question_for_match(value: str) -> str:
+    text = (value or "").replace("×", "x").replace("＝", "=")
+    return re.sub(r"[\s，。,.!?！？；;：:、\"'“”‘’（）()\[\]【】$^_{}=\\]+", "", text).lower()
 
 
 def _apply_whole_page_visual_fallback_items(

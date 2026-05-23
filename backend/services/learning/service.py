@@ -1451,6 +1451,7 @@ def build_default_learning_service() -> LearningService:
     session_runner = _build_session_runner_from_env()
     intent_router = _build_intent_router_from_env()
     basic_rubric_evaluator = _build_basic_subject_rubric_evaluator_from_env()
+    visual_fallback_ocr_provider = _build_visual_fallback_ocr_provider_from_env()
     agent_runtime = (
         os.getenv("SONGGUO_AGENT_RUNTIME")
         or _read_local_dotenv_value("SONGGUO_AGENT_RUNTIME")
@@ -1469,6 +1470,7 @@ def build_default_learning_service() -> LearningService:
             session_runner=session_runner,
             intent_router=intent_router,
             basic_rubric_evaluator=basic_rubric_evaluator,
+            visual_fallback_ocr_provider=visual_fallback_ocr_provider,
             agent_runtime=agent_runtime,
         )
     return LearningService(
@@ -1478,6 +1480,7 @@ def build_default_learning_service() -> LearningService:
         session_runner=session_runner,
         intent_router=intent_router,
         basic_rubric_evaluator=basic_rubric_evaluator,
+        visual_fallback_ocr_provider=visual_fallback_ocr_provider,
         agent_runtime=agent_runtime,
     )
 
@@ -1509,6 +1512,34 @@ def _build_basic_subject_rubric_evaluator_from_env() -> BasicSubjectRubricEvalua
     from songguo.backend.services.learning.langchain_model_client import LangChainLLMClient
 
     return BasicSubjectRubricEvaluator(llm_client=LangChainLLMClient(), fast_path_enabled=True)
+
+
+def _build_visual_fallback_ocr_provider_from_env():
+    provider = (
+        os.getenv("SONGGUO_VISUAL_FALLBACK_OCR_PROVIDER")
+        or _read_local_dotenv_value("SONGGUO_VISUAL_FALLBACK_OCR_PROVIDER")
+        or os.getenv("SONGGUO_PHOTO_OCR_PROVIDER")
+        or _read_local_dotenv_value("SONGGUO_PHOTO_OCR_PROVIDER")
+        or os.getenv("DEEPTUTOR_PHOTO_OCR_PROVIDER")
+        or _read_local_dotenv_value("DEEPTUTOR_PHOTO_OCR_PROVIDER")
+        or ""
+    ).strip().lower()
+    if provider in {"aliyun_edu", "aliyun_edu_ocr"}:
+        from songguo.backend.services.learning.photo_review import AliyunEduOCRProvider
+
+        return AliyunEduOCRProvider()
+    if provider == "vision":
+        from songguo.backend.services.learning.photo_review import VisionOCRProvider
+
+        model = (
+            os.getenv("SONGGUO_VISION_MODEL")
+            or _read_local_dotenv_value("SONGGUO_VISION_MODEL")
+            or os.getenv("DEEPTUTOR_VISION_MODEL")
+            or _read_local_dotenv_value("DEEPTUTOR_VISION_MODEL")
+            or None
+        )
+        return VisionOCRProvider(model=model)
+    return None
 
 
 def _build_learning_store_from_env():

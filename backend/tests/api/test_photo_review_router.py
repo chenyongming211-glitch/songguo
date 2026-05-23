@@ -212,7 +212,7 @@ def test_submission_photo_draft_returns_preprocessed_preview_for_image_upload(tm
     assert payload["preview_image_path"]
     assert payload["preview_image_path"] != payload["image_path"]
     assert payload["preview_image_url"].startswith("/api/v1/learning/submissions/photo-preview/")
-    assert payload["image_refs"] == [payload["preview_image_path"]]
+    assert payload["image_refs"] == [payload["image_path"]]
     assert preview_res.status_code == 200
     assert preview_res.headers["content-type"].startswith("image/jpeg")
 
